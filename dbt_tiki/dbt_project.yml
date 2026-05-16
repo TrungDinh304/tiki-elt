@@ -1,0 +1,28 @@
+name: 'dbt_tiki'
+version: '1.0.0'
+config-version: 2
+
+profile: 'dbt_tiki'
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+target-path: "target"  
+clean-targets: 
+  - "target"
+  - "dbt_packages"
+
+models:
+  dbt_tiki:
+    staging:
+      +materialized: external
+      +location: "s3://{{ var('silver_bucket') }}/{{ this.name }}.parquet"
+      +format: "parquet"
+    marts:
+      +materialized: external
+      +location: "s3://{{ var('lakehouse_bucket') }}/marts/{{ this.name }}.parquet"
+      +format: "parquet"

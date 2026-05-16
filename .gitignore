@@ -1,0 +1,46 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg-info
+build/
+dist/
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# air_flow logs
+airflow_home/logs/
+
+# DuckDB / Local DBs
+*.duckdb
+*.db
+*.sqlite3
+
+# MinIO Local Storage (if mapped internally and not ignored)
+minio_data/
+pg_data/
+
+# dbt
+dbt_tiki/target/
+dbt_tiki/dbt_packages/
+dbt_tiki/logs/
+
+# Secrets
+.secrets/
+
+# Data Previews
+# preview_data/
+
+# IDEs
+.vscode/
+.idea/
+.DS_Store
+preview_data/

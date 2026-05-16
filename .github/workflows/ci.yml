@@ -1,0 +1,43 @@
+name: Tiki Lakehouse CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        python-version: "3.10"
+
+    - name: Install Dependencies
+      run: |
+        uv sync --all-extras
+
+    - name: Python Format Check (Black)
+      run: |
+        uv run black --check crawler/
+
+    - name: Python Lint (Flake8)
+      run: |
+        uv run flake8 crawler/ --max-line-length=100
+
+    - name: Run Crawler Tests
+      run: |
+        # Set dummy env vars for test to pass without actual MinIO
+        export MINIO_ENDPOINT="http://localhost:9000"
+        export MINIO_ACCESS_KEY="admin"
+        export MINIO_SECRET_KEY="password"
+        # Run pytest via uv run to pick up venv explicitly
+        uv run pytest crawler/tests/
+
+    - name: SQL Lint (SQLFluff)
+      run: |
+        cd dbt_tiki && uv run sqlfluff lint models --dialect duckdb
