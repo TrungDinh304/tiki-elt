@@ -44,5 +44,3 @@ def test_fetch_products_accepts_category_list(monkeypatch):
     products = fetch_products([8322, 1789], num_pages=1)
     assert isinstance(products, list)
     assert len(products) >= 2
-
-

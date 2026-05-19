@@ -6,6 +6,7 @@ partitioning as fetch_tiki.py:
 
 Categories change slowly, so this crawl is scheduled monthly by Airflow.
 """
+
 import os
 import re
 import json
@@ -77,7 +78,11 @@ def _iter_menu_roots(payload):
         return
 
     candidates = [
-        payload.get("menu_block", {}).get("items") if isinstance(payload.get("menu_block"), dict) else None,
+        (
+            payload.get("menu_block", {}).get("items")
+            if isinstance(payload.get("menu_block"), dict)
+            else None
+        ),
         payload.get("menu"),
         payload.get("items"),
         payload.get("data"),
@@ -106,7 +111,18 @@ def _node_children(node):
     return children if isinstance(children, list) else []
 
 
-def _build_row(node, menu_id, name, link, category_id, parent_menu_id, parent_category_id, level, current_path, is_leaf):
+def _build_row(
+    node,
+    menu_id,
+    name,
+    link,
+    category_id,
+    parent_menu_id,
+    parent_category_id,
+    level,
+    current_path,
+    is_leaf,
+):
     return {
         "menu_id": str(menu_id) if menu_id is not None else None,
         "category_id": category_id,
@@ -137,8 +153,16 @@ def _visit(node, parent_menu_id, parent_category_id, level, path_parts, rows):
     if menu_id is not None or category_id is not None or name:
         rows.append(
             _build_row(
-                node, menu_id, name, link, category_id,
-                parent_menu_id, parent_category_id, level, current_path, is_leaf,
+                node,
+                menu_id,
+                name,
+                link,
+                category_id,
+                parent_menu_id,
+                parent_category_id,
+                level,
+                current_path,
+                is_leaf,
             )
         )
 
@@ -165,9 +189,11 @@ def sanitize_dataframe(df):
     for col in df.columns:
         if df[col].apply(lambda x: isinstance(x, (dict, list))).any():
             df[col] = df[col].apply(
-                lambda x: json.dumps(x, ensure_ascii=False, default=_json_default)
-                if isinstance(x, (dict, list))
-                else x
+                lambda x: (
+                    json.dumps(x, ensure_ascii=False, default=_json_default)
+                    if isinstance(x, (dict, list))
+                    else x
+                )
             )
     return df
 

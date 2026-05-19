@@ -5,6 +5,7 @@ from `s3://bronze/<entity>/dt=*/run_id=*/*.parquet`, so once those partitions
 are moved under `_processed/`, subsequent dbt runs only see fresh crawl batches.
 This is the historical-archive marker requested in the design.
 """
+
 import os
 import sys
 import argparse
@@ -64,7 +65,7 @@ def archive_entity(s3, entity, dt=None):
     for src_key in live_keys:
         # src:  tiki_products/dt=2026-05-15/run_id=.../file.parquet
         # dst:  tiki_products/_processed/dt=2026-05-15/run_id=.../file.parquet
-        suffix = src_key[len(base_prefix):]
+        suffix = src_key[len(base_prefix) :]
         dst_key = f"{entity}/_processed/{suffix}"
         try:
             s3.copy_object(
@@ -83,7 +84,9 @@ def archive_entity(s3, entity, dt=None):
 
 def main():
     parser = argparse.ArgumentParser(description="Archive processed bronze partitions.")
-    parser.add_argument("--dt", help="Only archive this dt (YYYY-MM-DD). Default: all live partitions.")
+    parser.add_argument(
+        "--dt", help="Only archive this dt (YYYY-MM-DD). Default: all live partitions."
+    )
     parser.add_argument("--entities", nargs="*", default=ENTITIES, help="Entities to archive.")
     args = parser.parse_args()
 

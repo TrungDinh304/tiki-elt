@@ -8,6 +8,7 @@ import pandas as pd
 from datetime import datetime
 from io import BytesIO
 from dotenv import load_dotenv
+
 # import redis\redis.py
 # Use the local Redis helper in this repo (redis/redis.py)
 # NOTE: `redis/` folder is not a Python package, so we load it by path.
@@ -28,10 +29,6 @@ try:
 except Exception:
     # Don't crash crawler when redis client isn't available; just skip caching.
     rd = None  # type: ignore
-
-
-
-
 
 
 load_dotenv()
@@ -60,18 +57,20 @@ RUN_DT = _RUN_TS.strftime("%Y-%m-%d")
 SESSION = requests.Session()
 # Tiki's listings endpoint started rejecting requests without a full browser-like
 # header set (returns HTTP 400). These mimic a Chrome session on tiki.vn.
-SESSION.headers.update({
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
-    ),
-    "Accept": "application/json, text/plain, */*",
-    "Accept-Language": "vi,en-US;q=0.9,en;q=0.8",
-    "Referer": "https://tiki.vn/",
-    "Origin": "https://tiki.vn",
-    "x-guest-token": "",
-})
+SESSION.headers.update(
+    {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "vi,en-US;q=0.9,en;q=0.8",
+        "Referer": "https://tiki.vn/",
+        "Origin": "https://tiki.vn",
+        "x-guest-token": "",
+    }
+)
 
 
 def fetch_json(url, params=None, max_retries=3):
@@ -183,7 +182,6 @@ def fetch_seller_info(seller_id):
     return fetch_json(url, params=params)
 
 
-
 def fetch_product_reviews(product_id, seller_id, page=1, limit=MAX_PRODUCT_REVIEWS):
     if not product_id or not seller_id:
         return None
@@ -213,9 +211,11 @@ def sanitize_dataframe(df):
     for col in df.columns:
         if df[col].apply(lambda x: isinstance(x, (dict, list))).any():
             df[col] = df[col].apply(
-                lambda x: json.dumps(x, ensure_ascii=False, default=_json_default)
-                if isinstance(x, (dict, list))
-                else x
+                lambda x: (
+                    json.dumps(x, ensure_ascii=False, default=_json_default)
+                    if isinstance(x, (dict, list))
+                    else x
+                )
             )
     return df
 
@@ -367,7 +367,10 @@ if __name__ == "__main__":
 
     bump_watermark(plan["watermark"], plan["chosen"])
     write_watermark(
-        plan["bronze"], plan["watermark"],
-        plan["endpoint"], plan["access_key"], plan["secret_key"],
+        plan["bronze"],
+        plan["watermark"],
+        plan["endpoint"],
+        plan["access_key"],
+        plan["secret_key"],
     )
     write_success_marker()

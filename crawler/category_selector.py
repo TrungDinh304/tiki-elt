@@ -11,6 +11,7 @@ Source of leaves, in order of preference:
   3. Raw `s3://<bronze>/tiki_categories/dt=*/run_id=*/*.parquet`.
   4. If all empty, run crawler/fetch_category.py to populate (3), then retry.
 """
+
 import json
 import os
 from datetime import datetime, timezone
@@ -100,8 +101,13 @@ def clear_cache():
 
 
 def load_leaf_categories(
-    bronze_bucket, lakehouse_bucket, endpoint, access_key, secret_key,
-    *, allow_bootstrap=True,
+    bronze_bucket,
+    lakehouse_bucket,
+    endpoint,
+    access_key,
+    secret_key,
+    *,
+    allow_bootstrap=True,
 ):
     """Return list[int] of leaf category_ids.
 
