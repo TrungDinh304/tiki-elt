@@ -170,7 +170,8 @@ def fetch_seller_info(seller_id):
 
     if rd is not None and hasattr(rd, "get_data_from_api"):
         try:
-            ## if Redis cache is available, return None on cache hit to avoid unnecessary API calls, since seller info is less critical than product details.
+            # If Redis cache is available, return None on cache hit to avoid unnecessary API calls.
+            # Seller info is less critical than product details.
             cached_result = rd.get_data_from_api(url, params=params)  # type: ignore[attr-defined]
             if cached_result is not None:
                 print(f"Seller info for seller_id={params['seller_id']} retrieved from cache.")
