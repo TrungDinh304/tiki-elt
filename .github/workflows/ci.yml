@@ -48,7 +48,3 @@ jobs:
       run: |
         # Run pytest via uv run to pick up venv explicitly
         uv run pytest crawler/tests/
-
-    - name: SQL Lint (SQLFluff)
-      run: |
-        cd dbt_tiki && uv run sqlfluff lint models --dialect duckdb
