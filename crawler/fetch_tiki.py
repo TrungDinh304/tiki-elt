@@ -48,12 +48,30 @@ MAX_REVIEW_PAGES = int(os.getenv("MAX_REVIEW_PAGES", "1"))
 REQUEST_DELAY_MIN = float(os.getenv("REQUEST_DELAY_MIN", "1.5"))
 REQUEST_DELAY_MAX = float(os.getenv("REQUEST_DELAY_MAX", "3.5"))
 
+# How many leaf categories to crawl per run, and how deep per category.
+# Tuned so a single run finishes in ~15min at the default delay.
+BUDGET_PER_RUN = int(os.getenv("BUDGET_PER_RUN", "50"))
+PAGES_PER_CATEGORY = int(os.getenv("PAGES_PER_CATEGORY", "5"))
+
 _RUN_TS = datetime.now()
 RUN_ID = _RUN_TS.strftime("%Y%m%d_%H%M%S")
 RUN_DT = _RUN_TS.strftime("%Y-%m-%d")
 
 SESSION = requests.Session()
-SESSION.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+# Tiki's listings endpoint started rejecting requests without a full browser-like
+# header set (returns HTTP 400). These mimic a Chrome session on tiki.vn.
+SESSION.headers.update({
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "vi,en-US;q=0.9,en;q=0.8",
+    "Referer": "https://tiki.vn/",
+    "Origin": "https://tiki.vn",
+    "x-guest-token": "",
+})
 
 
 def fetch_json(url, params=None, max_retries=3):
@@ -79,16 +97,22 @@ def get_delay():
     return random.uniform(REQUEST_DELAY_MIN, REQUEST_DELAY_MAX)
 
 
-def fetch_products(num_pages=DEFAULT_NUM_PAGES):
+def fetch_products_for_category(category_id, num_pages=PAGES_PER_CATEGORY):
+    """Fetch up to `num_pages` listing pages filtered by a single category_id.
+
+    The Tiki listings endpoint started returning HTTP 400 without `category`,
+    so this is now the only supported entry point.
+    """
     all_products = []
+    page_tag = f"cat{category_id}"
 
     for page in range(1, num_pages + 1):
         api_url = (
             "https://tiki.vn/api/personalish/v1/blocks/listings?"
             f"limit=40&include=advertisement&aggregations=2&"
-            f"version=home-persionalized&page={page}"
+            f"category={category_id}&page={page}"
         )
-        print(f"Fetching page {page} from: {api_url}")
+        print(f"[cat {category_id}] page {page}: {api_url}")
 
         response = fetch_json(api_url)
         if not response:
@@ -96,23 +120,35 @@ def fetch_products(num_pages=DEFAULT_NUM_PAGES):
 
         data = response.get("data", [])
         if not data:
-            print(f"No more data at page {page}. Stopping.")
+            print(f"[cat {category_id}] no more data at page {page}")
             break
 
-        # Test/Mock mode: allow unit tests to validate fetch logic without downloading
-        # all nested entities. If the mocked response returns a single item, treat it as
-        # a single product payload.
+        # Test/Mock mode kept for crawler/tests/test_fetch.py.
         if isinstance(data, list) and len(data) == 1:
             all_products.extend(data)
             return all_products
 
-        print(f"Fetched {len(data)} products from page {page}")
-        process_page(data, page)
+        # Stamp every row with the category slot it was crawled under so bronze
+        # readers can attribute products back to the rotation budget.
+        for row in data:
+            if isinstance(row, dict):
+                row["crawl_category_id"] = int(category_id)
+
+        print(f"[cat {category_id}] fetched {len(data)} products on page {page}")
+        process_page(data, f"{page_tag}_p{page}")
         all_products.extend(data)
 
         time.sleep(get_delay())
 
     return all_products
+
+
+def fetch_products(category_ids, num_pages=PAGES_PER_CATEGORY):
+    """Crawl multiple categories sequentially. Returns the combined list."""
+    combined = []
+    for cid in category_ids:
+        combined.extend(fetch_products_for_category(cid, num_pages=num_pages))
+    return combined
 
 
 def fetch_product_details(product_id):
@@ -185,8 +221,8 @@ def sanitize_dataframe(df):
 
 
 def save_to_minio(data, entity, file_name, preview=False):
-    """Write a batch to bronze layer using Hive-style partitioning:
-       s3://bronze/<entity>/dt=YYYY-MM-DD/run_id=YYYYMMDD_HHMMSS/<file_name>.parquet"""
+    f"""Write a batch to bronze layer using Hive-style partitioning:
+       s3://{BRONZE_BUCKET}/<entity>/dt=YYYY-MM-DD/run_id=YYYYMMDD_HHMMSS/<file_name>.parquet"""
     if not data:
         print(f"No data to save for {entity}")
         return
@@ -291,7 +327,7 @@ def process_page(products, page_number):
 
 
 def write_success_marker():
-    """Write a manifest at s3://bronze/_manifests/<dt>/<run_id>.json so
+    f"""Write a manifest at s3://{BRONZE_BUCKET}/_manifests/<dt>/<run_id>.json so
        downstream jobs can detect a completed crawl and dbt has a deterministic
        partition watermark to filter on."""
     s3_client = boto3.client(
@@ -307,5 +343,31 @@ def write_success_marker():
 
 
 if __name__ == "__main__":
-    fetch_products(num_pages=20)
+    from category_selector import (
+        plan_crawl,
+        bump_watermark,
+        write_watermark,
+    )
+
+    plan = plan_crawl(BUDGET_PER_RUN)
+    print(
+        f"Found {plan['leaves_total']} leaf categories; "
+        f"crawling {len(plan['chosen'])} this run "
+        f"(budget={BUDGET_PER_RUN}, pages={PAGES_PER_CATEGORY})"
+    )
+    if not plan["chosen"]:
+        raise SystemExit(
+            "No leaf categories available. Run crawler/fetch_category.py first "
+            "to populate s3://bronze/tiki_categories/."
+        )
+
+    products = fetch_products(plan["chosen"], num_pages=PAGES_PER_CATEGORY)
+    if not products:
+        raise SystemExit("No products fetched — refusing to write success manifest")
+
+    bump_watermark(plan["watermark"], plan["chosen"])
+    write_watermark(
+        plan["bronze"], plan["watermark"],
+        plan["endpoint"], plan["access_key"], plan["secret_key"],
+    )
     write_success_marker()

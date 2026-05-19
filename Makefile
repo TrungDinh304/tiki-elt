@@ -1,5 +1,6 @@
-.PHONY: setup up down crawl dbt-run archive lint test
-
+.PHONY: setup up down crawl crawl-categories dbt-run archive lint test airflow-start
+# read env
+include .env
 # Setup global environment and dependencies
 setup:
 	uv venv
@@ -19,9 +20,13 @@ down:
 crawl:
 	uv run python crawler/fetch_tiki.py
 
+# Run the category crawler (monthly cadence)
+crawl-categories:
+	uv run python crawler/fetch_category.py
+
 # Run dbt transformations
 dbt-run:
-	cd dbt_tiki && uv run dbt run --vars "{bronze_bucket: bronze, silver_bucket: silver, lakehouse_bucket: lakehouse}"
+	cd dbt_tiki && uv run dbt run --vars "{bronze_bucket: ${BRONZE_BUCKET}, silver_bucket: ${SILVER_BUCKET}, lakehouse_bucket: ${LAKEHOUSE_BUCKET}}"
 
 # Archive processed bronze partitions to _processed/
 archive:
@@ -40,5 +45,5 @@ test:
 # Start Airflow Standalone
 airflow-start:
 	export AIRFLOW_HOME=$(PWD)/airflow_home && \
-	export AIRFLOW__WEBSERVER__WEB_SERVER_PORT=8081 && \
+	export AIRFLOW__WEBSERVER__WEB_SERVER_PORT=${AIRFLOW__WEBSERVER__WEB_SERVER_PORT} && \
 	uv run airflow standalone

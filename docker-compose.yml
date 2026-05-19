@@ -25,12 +25,12 @@ services:
       - minio
     entrypoint: >
       /bin/sh -c "
-      sleep 5 &&
-      /usr/bin/mc config host add myminio http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD} &&
-      /usr/bin/mc mb myminio/bronze || true &&
-      /usr/bin/mc mb myminio/silver || true &&
-      /usr/bin/mc mb myminio/lakehouse || true &&
-      /usr/bin/mc mb myminio/raw-data || true &&
+      sleep 5;
+      /usr/bin/mc alias set myminio http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD};
+      /usr/bin/mc mb --ignore-existing myminio/raw-data;
+      /usr/bin/mc mb --ignore-existing myminio/bronze;
+      /usr/bin/mc mb --ignore-existing myminio/silver;
+      /usr/bin/mc mb --ignore-existing myminio/lakehouse;
       exit 0
       "
     networks:
@@ -46,7 +46,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pg_data:/var/lib/postgresql/data
     networks:
@@ -102,7 +102,53 @@ services:
     container_name: tiki_redis
     ports:
       - "6379:6379"
-      
+
+  # 6. AIRFLOW - Orchestrator (standalone mode for dev)
+  airflow:
+    build:
+      context: .
+      dockerfile: airflow/Dockerfile
+    image: tiki-airflow:local
+    container_name: tiki_airflow
+    ports:
+      - "8081:8080"
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__DAGS_FOLDER: /opt/project/dags
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "True"
+      # NOTE: standalone mode ignores _AIRFLOW_WWW_USER_* and auto-generates a
+      # random admin password (read it with:
+      #   docker exec tiki_airflow cat /opt/airflow/standalone_admin_password.txt
+      # ). Run `airflow users create` after first boot to pin a known password.
+      # Propagate lakehouse + crawler config to BashOperator tasks.
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-minio:9000}
+      # dbt's DuckDB profile uses `host:port` (no scheme) — separate var so
+      # the format stays distinct from MINIO_ENDPOINT used by boto3.
+      S3_ENDPOINT_HOST: ${S3_ENDPOINT_HOST:-minio:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      BRONZE_BUCKET: ${BRONZE_BUCKET:-bronze}
+      SILVER_BUCKET: ${SILVER_BUCKET:-silver}
+      LAKEHOUSE_BUCKET: ${LAKEHOUSE_BUCKET:-lakehouse}
+      BUDGET_PER_RUN: ${BUDGET_PER_RUN:-50}
+      PAGES_PER_CATEGORY: ${PAGES_PER_CATEGORY:-5}
+    volumes:
+      - ./dags:/opt/project/dags
+      - ./crawler:/opt/project/crawler
+      - ./dbt_tiki:/opt/project/dbt_tiki
+      - ./airflow_home/logs:/opt/airflow/logs
+      - airflow_db:/opt/airflow/db
+    # standalone runs scheduler+webserver+triggerer in one process — fine for dev.
+    command: standalone
+    depends_on:
+      - postgres
+      - minio
+    networks:
+      - lakehouse_net
+    restart: "no"
+
 
 networks:
   lakehouse_net:
@@ -112,3 +158,4 @@ volumes:
   minio_data:
   pg_data:
   trino_metastore:
+  airflow_db:

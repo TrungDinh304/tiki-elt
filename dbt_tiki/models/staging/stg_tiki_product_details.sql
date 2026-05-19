@@ -28,6 +28,10 @@ ranked AS (
         json_extract_string(current_seller, '$.name')                       AS seller_name,
         json_extract_string(brand, '$.name')                                AS brand_name,
         TRY_CAST(json_extract_string(brand, '$.id') AS BIGINT)              AS brand_id,
+        -- Tiki product detail returns the leaf category as a single object
+        -- under `categories.id`; this is the FK into dim_categories.
+        TRY_CAST(json_extract_string(categories, '$.id') AS BIGINT)         AS category_id,
+        json_extract_string(categories, '$.name')                            AS category_name,
         type,
         inventory_status,
         url_key,
@@ -67,6 +71,8 @@ SELECT
     seller_name,
     brand_id,
     brand_name,
+    category_id,
+    category_name,
     type,
     inventory_status,
     url_key,

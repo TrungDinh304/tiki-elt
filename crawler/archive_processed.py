@@ -19,7 +19,13 @@ MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "admin")
 MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "minio_password")
 BRONZE_BUCKET = os.getenv("BRONZE_BUCKET", "bronze")
 
-ENTITIES = ["tiki_products", "tiki_product_details", "tiki_sellers", "tiki_reviews"]
+ENTITIES = [
+    "tiki_products",
+    "tiki_product_details",
+    "tiki_sellers",
+    "tiki_reviews",
+    "tiki_categories",
+]
 
 
 def _s3():

@@ -17,6 +17,8 @@ SELECT
     seller_name,
     brand_id,
     brand_name,
+    category_id,
+    category_name,
     type,
     inventory_status,
     url_key,
