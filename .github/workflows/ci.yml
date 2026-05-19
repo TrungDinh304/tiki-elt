@@ -21,6 +21,13 @@ jobs:
       run: |
         uv sync --all-extras
 
+    - name: Start required services (MinIO, Postgres, Trino)
+      run: |
+        # Start minimal services needed for integration-style tests
+        docker compose -f docker-compose.yml up -d minio postgres trino
+        # Give services a short moment to initialize
+        sleep 20
+
     - name: Python Format Check (Black)
       run: |
         uv run black --check crawler/
@@ -30,11 +37,15 @@ jobs:
         uv run flake8 crawler/ --max-line-length=100
 
     - name: Run Crawler Tests
+      env:
+        MINIO_ENDPOINT: "http://localhost:9000"
+        MINIO_ACCESS_KEY: ${{ secrets.MINIO_ACCESS_KEY }}
+        MINIO_SECRET_KEY: ${{ secrets.MINIO_SECRET_KEY }}
+        POSTGRES_HOST: "localhost"
+        POSTGRES_PORT: "5432"
+        POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+        POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
       run: |
-        # Set dummy env vars for test to pass without actual MinIO
-        export MINIO_ENDPOINT="http://localhost:9000"
-        export MINIO_ACCESS_KEY="admin"
-        export MINIO_SECRET_KEY="password"
         # Run pytest via uv run to pick up venv explicitly
         uv run pytest crawler/tests/
 
