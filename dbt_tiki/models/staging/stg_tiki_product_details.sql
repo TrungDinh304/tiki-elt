@@ -1,3 +1,5 @@
+{{ config(location=external_path('silver')) }}
+
 WITH raw AS (
     SELECT *
     FROM READ_PARQUET(

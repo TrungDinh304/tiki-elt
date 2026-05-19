@@ -1,3 +1,5 @@
+{{ config(location=external_path('lakehouse_marts')) }}
+
 SELECT
     seller_id,
     seller_name,

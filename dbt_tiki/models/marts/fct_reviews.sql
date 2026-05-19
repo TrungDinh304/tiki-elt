@@ -1,3 +1,5 @@
+{{ config(location=external_path('lakehouse_marts')) }}
+
 WITH reviews AS (
     SELECT * FROM {{ ref('stg_tiki_reviews') }}
 ),

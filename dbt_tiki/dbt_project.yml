@@ -20,9 +20,11 @@ models:
   dbt_tiki:
     staging:
       +materialized: external
-      +location: "s3://{{ var('silver_bucket') }}/{{ this.name }}.parquet"
       +format: "parquet"
+      # NOTE: `+location` cannot be set here — dbt-duckdb 1.10+ renders
+      # project-level Jinja at parse time when neither `this` nor user
+      # macros are bound. Each model's SQL prepends its own
+      # `{{ config(location=external_path('silver')) }}` instead.
     marts:
       +materialized: external
-      +location: "s3://{{ var('lakehouse_bucket') }}/marts/{{ this.name }}.parquet"
       +format: "parquet"

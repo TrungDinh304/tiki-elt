@@ -1,3 +1,5 @@
+{{ config(location=external_path('lakehouse_marts')) }}
+
 -- Snowflake-style category dimension: a single self-referencing table with
 -- parent_category_id pointing back to dim_categories.category_id. Rows
 -- without an extractable category_id (link didn't match /c<digits>) are

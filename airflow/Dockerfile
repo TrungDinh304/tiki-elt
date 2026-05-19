@@ -26,5 +26,9 @@ RUN apt-get update \
         "seaborn" \
     && chmod -R a+rx ${PROJECT_VENV}
 
+# Wrapper that pre-creates the admin user from env before handing off to
+# `airflow standalone` (standalone otherwise generates a random password).
+COPY --chmod=0755 airflow/start.sh /opt/airflow/start.sh
+
 USER airflow
 WORKDIR /opt/project

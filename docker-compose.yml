@@ -118,15 +118,17 @@ services:
       AIRFLOW__CORE__LOAD_EXAMPLES: "False"
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "True"
-      # NOTE: standalone mode ignores _AIRFLOW_WWW_USER_* and auto-generates a
-      # random admin password (read it with:
-      #   docker exec tiki_airflow cat /opt/airflow/standalone_admin_password.txt
-      # ). Run `airflow users create` after first boot to pin a known password.
+      # Admin credentials consumed by airflow/start.sh (not by standalone).
+      AIRFLOW_ADMIN_USER: ${AIRFLOW_ADMIN_USER:-admin}
+      AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:-admin}
+      AIRFLOW_ADMIN_EMAIL: ${AIRFLOW_ADMIN_EMAIL:-admin@local}
       # Propagate lakehouse + crawler config to BashOperator tasks.
-      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-minio:9000}
-      # dbt's DuckDB profile uses `host:port` (no scheme) — separate var so
-      # the format stays distinct from MINIO_ENDPOINT used by boto3.
-      S3_ENDPOINT_HOST: ${S3_ENDPOINT_HOST:-minio:9000}
+      # Hardcoded (NOT substituted from .env) because the MinIO address inside
+      # the docker network is always `minio:9000` — overriding via host .env
+      # would point boto3/duckdb at localhost:9000 inside the container.
+      MINIO_ENDPOINT: http://minio:9000
+      # dbt's DuckDB profile uses `host:port` (no scheme) — separate var.
+      S3_ENDPOINT_HOST: minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
       BRONZE_BUCKET: ${BRONZE_BUCKET:-bronze}
@@ -140,8 +142,11 @@ services:
       - ./dbt_tiki:/opt/project/dbt_tiki
       - ./airflow_home/logs:/opt/airflow/logs
       - airflow_db:/opt/airflow/db
-    # standalone runs scheduler+webserver+triggerer in one process — fine for dev.
-    command: standalone
+    # Custom entrypoint: pre-create admin user from AIRFLOW_ADMIN_USER /
+    # AIRFLOW_ADMIN_PASSWORD then hand off to airflow standalone (which
+    # skips user creation when the admin already exists).
+    entrypoint: ["/opt/airflow/start.sh"]
+    command: []
     depends_on:
       - postgres
       - minio

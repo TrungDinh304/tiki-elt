@@ -1,3 +1,5 @@
+{{ config(location=external_path('lakehouse_marts')) }}
+
 WITH books AS (
     SELECT * FROM {{ ref('stg_tiki_books') }}
 ),
