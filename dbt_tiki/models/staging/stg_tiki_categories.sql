@@ -12,17 +12,17 @@ WITH raw AS (
 ranked AS (
     SELECT
         menu_id,
-        TRY_CAST(category_id AS BIGINT)        AS category_id,
         category_name,
         link,
         parent_menu_id,
-        TRY_CAST(parent_category_id AS BIGINT) AS parent_category_id,
-        TRY_CAST(level AS INTEGER)             AS level,
         path,
-        TRY_CAST(is_leaf AS BOOLEAN)           AS is_leaf,
-        STRPTIME(extracted_at, '%Y%m%d_%H%M%S') AS extracted_at_ts,
         dt,
         run_id,
+        TRY_CAST(category_id AS BIGINT) AS category_id,
+        TRY_CAST(parent_category_id AS BIGINT) AS parent_category_id,
+        TRY_CAST(level AS INTEGER) AS category_level,
+        TRY_CAST(is_leaf AS BOOLEAN) AS is_leaf,
+        STRPTIME(extracted_at, '%Y%m%d_%H%M%S') AS extracted_at_ts,
         ROW_NUMBER() OVER (
             PARTITION BY menu_id
             ORDER BY extracted_at DESC
@@ -38,7 +38,7 @@ SELECT
     link,
     parent_menu_id,
     parent_category_id,
-    level,
+    category_level,
     path,
     is_leaf,
     extracted_at_ts,

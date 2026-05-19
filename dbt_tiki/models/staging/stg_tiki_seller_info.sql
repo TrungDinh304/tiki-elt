@@ -9,20 +9,22 @@ WITH raw AS (
 
 flattened AS (
     SELECT
-        TRY_CAST(json_extract_string(data, '$.seller.id') AS BIGINT)            AS seller_id,
-        json_extract_string(data, '$.seller.name')                              AS seller_name,
-        json_extract_string(data, '$.seller.slug')                              AS seller_slug,
-        json_extract_string(data, '$.seller.logo')                              AS seller_logo,
-        json_extract_string(data, '$.seller.icon')                              AS seller_icon,
-        json_extract_string(data, '$.seller.store_level')                       AS store_level,
-        TRY_CAST(json_extract_string(data, '$.seller.review_count') AS INTEGER) AS seller_review_count,
-        TRY_CAST(json_extract_string(data, '$.seller.avg_rating_point') AS FLOAT) AS avg_rating_point,
-        TRY_CAST(json_extract_string(data, '$.seller.total_follower') AS INTEGER) AS total_follower,
-        TRY_CAST(json_extract_string(data, '$.seller.is_official') AS BOOLEAN)  AS is_official,
-        json_extract_string(data, '$.seller.url_key')                           AS url_key,
-        STRPTIME(extracted_at, '%Y%m%d_%H%M%S')                                 AS extracted_at_ts,
         dt,
-        run_id
+        run_id,
+        TRY_CAST(JSON_EXTRACT_STRING(data, '$.seller.id') AS BIGINT) AS seller_id,
+        JSON_EXTRACT_STRING(data, '$.seller.name') AS seller_name,
+        JSON_EXTRACT_STRING(data, '$.seller.slug') AS seller_slug,
+        JSON_EXTRACT_STRING(data, '$.seller.logo') AS seller_logo,
+        JSON_EXTRACT_STRING(data, '$.seller.icon') AS seller_icon,
+        JSON_EXTRACT_STRING(data, '$.seller.store_level') AS store_level,
+        TRY_CAST(JSON_EXTRACT_STRING(data, '$.seller.review_count') AS INTEGER)
+            AS seller_review_count,
+        TRY_CAST(JSON_EXTRACT_STRING(data, '$.seller.avg_rating_point') AS FLOAT)
+            AS avg_rating_point,
+        TRY_CAST(JSON_EXTRACT_STRING(data, '$.seller.total_follower') AS INTEGER) AS total_follower,
+        TRY_CAST(JSON_EXTRACT_STRING(data, '$.seller.is_official') AS BOOLEAN) AS is_official,
+        JSON_EXTRACT_STRING(data, '$.seller.url_key') AS url_key,
+        STRPTIME(extracted_at, '%Y%m%d_%H%M%S') AS extracted_at_ts
     FROM raw
     WHERE data IS NOT NULL
 ),

@@ -41,6 +41,6 @@ SELECT
     b.thumbnail_url,
     b.extracted_at_ts,
     b.dt
-FROM books b
-LEFT JOIN sellers s USING (seller_id)
-LEFT JOIN product_category pc USING (product_id)
+FROM books AS b
+LEFT JOIN sellers AS s ON b.seller_id = s.seller_id
+LEFT JOIN product_category AS pc ON b.product_id = pc.product_id

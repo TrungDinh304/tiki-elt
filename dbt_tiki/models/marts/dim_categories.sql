@@ -16,7 +16,7 @@ ranked AS (
         *,
         ROW_NUMBER() OVER (
             PARTITION BY category_id
-            ORDER BY level ASC, extracted_at_ts DESC
+            ORDER BY category_level ASC, extracted_at_ts DESC
         ) AS rn
     FROM staged
 )
@@ -25,7 +25,7 @@ SELECT
     category_id,
     category_name,
     parent_category_id,
-    level,
+    category_level,
     path,
     is_leaf,
     link,

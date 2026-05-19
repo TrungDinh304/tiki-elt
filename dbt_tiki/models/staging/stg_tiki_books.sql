@@ -9,25 +9,25 @@ WITH raw AS (
 
 ranked AS (
     SELECT
-        TRY_CAST(id AS BIGINT)                                AS product_id,
-        name                                                  AS product_name,
+        name AS product_name,
         author_name,
         brand_name,
         inventory_status,
-        TRY_CAST(price AS INTEGER)                            AS price,
-        TRY_CAST(original_price AS INTEGER)                   AS original_price,
-        TRY_CAST(discount AS INTEGER)                         AS discount,
-        TRY_CAST(discount_rate AS FLOAT)                      AS discount_rate,
-        TRY_CAST(rating_average AS FLOAT)                     AS rating_average,
-        TRY_CAST(review_count AS INTEGER)                     AS review_count,
-        TRY_CAST(
-            json_extract_string(quantity_sold, '$.value') AS INTEGER
-        )                                                     AS quantity_sold,
-        TRY_CAST(seller_id AS BIGINT)                         AS seller_id,
         thumbnail_url,
-        STRPTIME(extracted_at, '%Y%m%d_%H%M%S')               AS extracted_at_ts,
         dt,
         run_id,
+        TRY_CAST(id AS BIGINT) AS product_id,
+        TRY_CAST(price AS INTEGER) AS price,
+        TRY_CAST(original_price AS INTEGER) AS original_price,
+        TRY_CAST(discount AS INTEGER) AS discount,
+        TRY_CAST(discount_rate AS FLOAT) AS discount_rate,
+        TRY_CAST(rating_average AS FLOAT) AS rating_average,
+        TRY_CAST(review_count AS INTEGER) AS review_count,
+        TRY_CAST(
+            JSON_EXTRACT_STRING(quantity_sold, '$.value') AS INTEGER
+        ) AS quantity_sold,
+        TRY_CAST(seller_id AS BIGINT) AS seller_id,
+        STRPTIME(extracted_at, '%Y%m%d_%H%M%S') AS extracted_at_ts,
         ROW_NUMBER() OVER (
             PARTITION BY id
             ORDER BY extracted_at DESC
