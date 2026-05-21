@@ -50,6 +50,14 @@ REQUEST_DELAY_MAX = float(os.getenv("REQUEST_DELAY_MAX", "3.5"))
 BUDGET_PER_RUN = int(os.getenv("BUDGET_PER_RUN", "50"))
 PAGES_PER_CATEGORY = int(os.getenv("PAGES_PER_CATEGORY", "5"))
 
+# Micro-batch: after every N categories crawled, fire a dbt staging refresh
+# so silver tables (and anything querying them through Trino) see fresh data
+# without waiting for the whole run to finish. Set to 0 to disable.
+TRIGGER_DBT_EVERY_N = int(os.getenv("TRIGGER_DBT_EVERY_N", "0"))
+DBT_PROJECT_DIR = os.getenv("DBT_PROJECT_DIR", str(Path(__file__).resolve().parent.parent / "dbt_tiki"))
+DBT_BIN = os.getenv("DBT_BIN", "dbt")
+DBT_STAGING_SELECTOR = os.getenv("DBT_STAGING_SELECTOR", "path:models/staging")
+
 _RUN_TS = datetime.now()
 RUN_ID = _RUN_TS.strftime("%Y%m%d_%H%M%S")
 RUN_DT = _RUN_TS.strftime("%Y-%m-%d")
@@ -142,11 +150,78 @@ def fetch_products_for_category(category_id, num_pages=PAGES_PER_CATEGORY):
     return all_products
 
 
+_INTERLEAVED_DBT_STATS = {"ok": 0, "failed": 0}
+
+
+def _run_dbt_staging_refresh():
+    """Fire `dbt run` against the staging path so silver layer is fresh
+    mid-crawl. Non-fatal: a failure here doesn't abort the rest of the crawl
+    (we'd rather keep collecting raw data than stop because dbt blipped). The
+    final dbt task in the DAG acts as a backstop for any failed refresh."""
+    import subprocess
+    import shutil
+
+    # Resolve to an absolute path up front so PermissionError on the PATH
+    # lookup turns into a clear log line instead of a crash.
+    resolved = DBT_BIN if os.path.isabs(DBT_BIN) else shutil.which(DBT_BIN)
+    if not resolved or not os.access(resolved, os.X_OK):
+        _INTERLEAVED_DBT_STATS["failed"] += 1
+        print(
+            f"[interleaved-dbt] FAILED: dbt binary not executable "
+            f"(DBT_BIN={DBT_BIN!r}, resolved={resolved!r}). "
+            f"Set DBT_BIN to an absolute path like /opt/project-venv/bin/dbt."
+        )
+        return
+
+    bronze = os.getenv("BRONZE_BUCKET", "bronze")
+    silver = os.getenv("SILVER_BUCKET", "silver")
+    lakehouse = os.getenv("LAKEHOUSE_BUCKET", "lakehouse")
+    cmd = [
+        resolved, "run",
+        "--profiles-dir", ".",
+        "--select", DBT_STAGING_SELECTOR,
+        "--vars", f"{{bronze_bucket: {bronze}, silver_bucket: {silver}, lakehouse_bucket: {lakehouse}}}",
+    ]
+    print(f"[interleaved-dbt] launching: {' '.join(cmd)} (cwd={DBT_PROJECT_DIR})")
+    try:
+        subprocess.run(cmd, cwd=DBT_PROJECT_DIR, check=True, timeout=300)
+        _INTERLEAVED_DBT_STATS["ok"] += 1
+        print("[interleaved-dbt] staging refresh OK")
+    except (
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+        FileNotFoundError,
+        PermissionError,
+        OSError,
+    ) as err:
+        _INTERLEAVED_DBT_STATS["failed"] += 1
+        print(
+            f"[interleaved-dbt] FAILED: {type(err).__name__}: {err}. "
+            "See dbt output above for the underlying cause. "
+            "The final dbt task in the DAG will retry as a backstop."
+        )
+
+
 def fetch_products(category_ids, num_pages=PAGES_PER_CATEGORY):
-    """Crawl multiple categories sequentially. Returns the combined list."""
+    """Crawl multiple categories sequentially. If TRIGGER_DBT_EVERY_N > 0,
+    a dbt staging refresh runs every N categories so silver is queryable
+    before the whole batch finishes. The final partial batch (when the
+    category count isn't a multiple of N) also gets refreshed so silver
+    isn't stuck on stale data at the tail of the crawl."""
     combined = []
-    for cid in category_ids:
+    total = len(category_ids)
+    for idx, cid in enumerate(category_ids, start=1):
         combined.extend(fetch_products_for_category(cid, num_pages=num_pages))
+
+        if TRIGGER_DBT_EVERY_N > 0 and (idx % TRIGGER_DBT_EVERY_N == 0 or idx == total):
+            _run_dbt_staging_refresh()
+
+    if TRIGGER_DBT_EVERY_N > 0:
+        print(
+            f"[interleaved-dbt] summary: ok={_INTERLEAVED_DBT_STATS['ok']} "
+            f"failed={_INTERLEAVED_DBT_STATS['failed']}"
+        )
+
     return combined
 
 

@@ -31,15 +31,27 @@ with DAG(
     tags=['tiki', 'lakehouse'],
 ) as dag:
 
-    # Task 1: Chạy crawler — dùng python trong project venv (xem Dockerfile).
+    # Task 1: Crawl. Every 5 categories the crawler fires a dbt staging refresh
+    # so silver tables become queryable mid-crawl via Trino/Superset instead of
+    # waiting until the crawl finishes. Tasks are sequential in Airflow, so this
+    # never overlaps with the final dbt task below.
     task_crawl = BashOperator(
         task_id='crawl_tiki_data',
         bash_command=f"cd {PROJECT_ROOT} && {PROJECT_PY} crawler/fetch_tiki.py",
+        env={
+            "TRIGGER_DBT_EVERY_N": "5",
+            "DBT_BIN": PROJECT_DBT,
+            "DBT_PROJECT_DIR": f"{PROJECT_ROOT}/dbt_tiki",
+        },
+        append_env=True,
     )
 
-    # Task 2: dbt transform — chạy dbt từ project venv.
+    # Task 2: rebuild staging + marts in one dbt invocation. Staging acts as a
+    # backstop for any interleaved refresh that failed during the crawl (cheap
+    # since materializations are idempotent COPYs); marts is the only place
+    # dim/fct tables get built.
     task_dbt = BashOperator(
-        task_id='run_dbt_transformation',
+        task_id='run_dbt',
         bash_command=(
             f"cd {PROJECT_ROOT}/dbt_tiki && "
             f"{PROJECT_DBT} run --profiles-dir . "
@@ -60,5 +72,5 @@ with DAG(
         bash_command=f"cd {PROJECT_ROOT} && {PROJECT_PY} analytics_plot.py",
     )
 
-    # Luồng: Crawl → dbt → Archive → Analytics
+    # Luồng: Crawl → dbt (staging + marts) → Archive → Analytics
     task_crawl >> task_dbt >> task_archive >> task_analytics

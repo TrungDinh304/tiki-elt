@@ -10,7 +10,7 @@ setup:
 
 # Start Local Infrastructure
 up:
-	docker compose up -d
+	docker compose up -d 
 
 # Stop Local Infrastructure
 down:
@@ -44,6 +44,4 @@ test:
 
 # Start Airflow Standalone
 airflow-start:
-	export AIRFLOW_HOME=$(PWD)/airflow_home && \
-	export AIRFLOW__WEBSERVER__WEB_SERVER_PORT=${AIRFLOW__WEBSERVER__WEB_SERVER_PORT} && \
-	uv run airflow standalone
+	airflow standalone

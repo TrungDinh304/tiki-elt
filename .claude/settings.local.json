@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker compose *)",
+      "Bash(ls C:/Users/TRUNG/.claude/projects/d--sources-repos-tiki-elt/memory/)",
+      "Read(//c/Users/TRUNG/.claude/projects/d--sources-repos-tiki-elt/memory/**)"
+    ]
+  }
+}

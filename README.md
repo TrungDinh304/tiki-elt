@@ -215,3 +215,23 @@ uv run pytest crawler/tests/
 ## Goal
 
 This repository is a hands-on lakehouse demo for e-commerce analytics. It is built to be easy to run locally, inspect with SQL, and extend with new models or sources.
+
+
+
+## Explain data flow
+
+```
+Daily DAG:
+  crawl_tiki_data  ────────────────────────────────────────►  run_dbt_marts ─► archive ─► analytics
+    │                                                              │
+    │  TRIGGER_DBT_EVERY_N=5 (set qua task env)                     │
+    │                                                              │
+    ├─ cat 1..5 crawl → dbt run --select path:models/staging  ◄── Trino thấy data NGAY
+    ├─ cat 6..10 crawl → dbt staging                          ◄── Silver fresh hơn
+    ├─ cat 11..15 ...                                                 
+    └─ cat …50 done                                                 
+                                                                    ▼
+                                                     dbt run --select path:models/marts
+                                                       (chỉ rebuild dim_*/fct_* — stg đã fresh)
+
+```

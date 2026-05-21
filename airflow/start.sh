@@ -26,5 +26,15 @@ airflow users create \
     --role Admin \
     --email "${ADMIN_EMAIL}"
 
+# Clean up stale PID/socket files left over from a previous container
+# instance. `airflow standalone` refuses to start a webserver if any of
+# these exist ("Error: Already running on PID …"), and the previous
+# webserver may have crashed without removing them.
+echo "[start.sh] Cleaning stale PID files"
+rm -f /opt/airflow/airflow-webserver.pid \
+      /opt/airflow/airflow-scheduler.pid \
+      /opt/airflow/airflow-triggerer.pid \
+      /opt/airflow/standalone_admin_password.txt
+
 echo "[start.sh] Handing off to airflow standalone"
 exec airflow standalone
