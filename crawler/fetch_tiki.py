@@ -377,8 +377,17 @@ def process_page(products, page_number):
     sellers = []
     for seller_id in seller_ids:
         info = fetch_seller_info(seller_id)
-        if info:
-            sellers.append(info)
+        # Tiki's seller widget response includes optional top-level keys
+        # (ad/meta/error_*) that vary per seller. Letting them leak into the
+        # DataFrame makes pandas infer different parquet types per batch
+        # (BIGINT in one file, VARCHAR in the next), which then breaks
+        # DuckDB's `union_by_name = TRUE` binder in stg_tiki_seller_info with
+        # an INTERNAL assertion failure. Keep only the `data` field that
+        # staging actually consumes so bronze always has a fixed schema.
+        if isinstance(info, dict):
+            seller_data = info.get("data")
+            if seller_data:
+                sellers.append({"data": seller_data})
         time.sleep(get_delay())
     save_to_minio(sellers, "tiki_sellers", f"sellers_{page_prefix}")
 

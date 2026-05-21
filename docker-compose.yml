@@ -27,7 +27,6 @@ services:
       /bin/sh -c "
       sleep 5;
       /usr/bin/mc alias set myminio http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD};
-      /usr/bin/mc mb --ignore-existing myminio/raw-data;
       /usr/bin/mc mb --ignore-existing myminio/bronze;
       /usr/bin/mc mb --ignore-existing myminio/silver;
       /usr/bin/mc mb --ignore-existing myminio/lakehouse;
