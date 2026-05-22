@@ -34,9 +34,8 @@ with DAG(
 
     # Task 1: Crawl. Every 5 categories the crawler fires a dbt staging refresh
     # so silver tables become queryable mid-crawl via Trino/Superset instead of
-    # waiting until the crawl finishes. `execution_timeout` caps the task so
-    # Airflow forcibly kills it after 45 minutes instead of hanging — partial
-    # crawls still leave plenty of fresh bronze for the downstream dbt task.
+    # waiting until the crawl finishes. The downstream run_dbt uses
+    # trigger_rule=ALL_DONE, so a long or stuck crawl no longer blocks marts.
     task_crawl = BashOperator(
         task_id='crawl_tiki_data',
         bash_command=f"cd {PROJECT_ROOT} && {PROJECT_PY} crawler/fetch_tiki.py",
@@ -46,7 +45,6 @@ with DAG(
             "DBT_PROJECT_DIR": f"{PROJECT_ROOT}/dbt_tiki",
         },
         append_env=True,
-        execution_timeout=timedelta(minutes=45),
     )
 
     # Task 2: rebuild staging + marts. `trigger_rule=ALL_DONE` means this runs
