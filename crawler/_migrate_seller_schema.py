@@ -4,6 +4,7 @@
 Run inside the airflow container:
     docker exec tiki_airflow /opt/project-venv/bin/python /opt/project/crawler/_migrate_seller_schema.py
 """
+
 import json
 import os
 from io import BytesIO
@@ -84,10 +85,7 @@ def main():
                 else:
                     stats["migrated"] += 1
                     if result["dropped"]:
-                        print(
-                            f"OK   {key} rows={result['rows']} "
-                            f"dropped={result['dropped']}"
-                        )
+                        print(f"OK   {key} rows={result['rows']} " f"dropped={result['dropped']}")
                     else:
                         print(f"OK   {key} rows={result['rows']} (no-op)")
             except Exception as err:
@@ -95,9 +93,11 @@ def main():
                 print(f"ERR  {key}: {type(err).__name__}: {err}")
 
     print()
-    print(f"=== Summary: migrated={stats['migrated']} "
-          f"skipped={stats['skipped']} errors={stats['errors']} "
-          f"keys_listed={len(keys_seen)} ===")
+    print(
+        f"=== Summary: migrated={stats['migrated']} "
+        f"skipped={stats['skipped']} errors={stats['errors']} "
+        f"keys_listed={len(keys_seen)} ==="
+    )
 
 
 if __name__ == "__main__":

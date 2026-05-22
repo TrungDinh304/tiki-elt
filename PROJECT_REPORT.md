@@ -28,7 +28,7 @@ Key entry points:
 4. Query & Visualization:
    - Trino is configured to query parquet files and uses Postgres as metadata backend where needed.
    - Superset connects to Trino/Postgres for dashboards.
-   - `analytics_plot.py` produces static plots as a final DAG step.
+   - `scripts/analytics_plot.py` produces static plots as a final DAG step.
 
 5. Archive & Idempotency:
    - `crawler/archive_processed.py` moves consumed partitions to `_processed/` to avoid repeated processing by dbt.
@@ -95,9 +95,9 @@ Key entry points:
     - Responsibility: perform post-dbt housekeeping — atomically move processed partition objects to `_processed/` to mark them as consumed and keep bronze listing clean.
     - Implementation: uses boto3 `list_objects_v2` paginator, `copy_object` then `delete_object` per key; supports `--dt` and `--entities` filters.
 
-  - Analytics plotting (`analytics_plot.py`)
+  - Analytics plotting (`scripts/analytics_plot.py`)
     - Responsibility: produce reproducible static analytics plots (matplotlib/seaborn) from transformed parquet/duckdb outputs; final DAG task for report generation.
-    - Invocation: `BashOperator` runs `python analytics_plot.py` in project venv; outputs saved locally or to configured reporting path.
+    - Invocation: `BashOperator` runs `python scripts/analytics_plot.py` in project venv; outputs saved locally to `images/`.
 
   - Dev tooling (Makefile, pyproject.toml, uv)
     - Responsibility: developer convenience tasks: venv creation (`uv venv`), dependency install, pre-commit setup, local run shortcuts (`make crawl`, `make dbt-run`, `make up`).

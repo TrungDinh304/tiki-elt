@@ -54,7 +54,9 @@ PAGES_PER_CATEGORY = int(os.getenv("PAGES_PER_CATEGORY", "5"))
 # so silver tables (and anything querying them through Trino) see fresh data
 # without waiting for the whole run to finish. Set to 0 to disable.
 TRIGGER_DBT_EVERY_N = int(os.getenv("TRIGGER_DBT_EVERY_N", "0"))
-DBT_PROJECT_DIR = os.getenv("DBT_PROJECT_DIR", str(Path(__file__).resolve().parent.parent / "dbt_tiki"))
+DBT_PROJECT_DIR = os.getenv(
+    "DBT_PROJECT_DIR", str(Path(__file__).resolve().parent.parent / "dbt_tiki")
+)
 DBT_BIN = os.getenv("DBT_BIN", "dbt")
 DBT_STAGING_SELECTOR = os.getenv("DBT_STAGING_SELECTOR", "path:models/staging")
 
@@ -177,10 +179,14 @@ def _run_dbt_staging_refresh():
     silver = os.getenv("SILVER_BUCKET", "silver")
     lakehouse = os.getenv("LAKEHOUSE_BUCKET", "lakehouse")
     cmd = [
-        resolved, "run",
-        "--profiles-dir", ".",
-        "--select", DBT_STAGING_SELECTOR,
-        "--vars", f"{{bronze_bucket: {bronze}, silver_bucket: {silver}, lakehouse_bucket: {lakehouse}}}",
+        resolved,
+        "run",
+        "--profiles-dir",
+        ".",
+        "--select",
+        DBT_STAGING_SELECTOR,
+        "--vars",
+        f"{{bronze_bucket: {bronze}, silver_bucket: {silver}, lakehouse_bucket: {lakehouse}}}",
     ]
     print(f"[interleaved-dbt] launching: {' '.join(cmd)} (cwd={DBT_PROJECT_DIR})")
     try:

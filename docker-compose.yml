@@ -139,6 +139,9 @@ services:
       - ./dags:/opt/project/dags
       - ./crawler:/opt/project/crawler
       - ./dbt_tiki:/opt/project/dbt_tiki
+      # Stand-alone DAG scripts (analytics_plot.py, etc.) and their outputs.
+      - ./scripts:/opt/project/scripts
+      - ./images:/opt/project/images
       - ./airflow_home/logs:/opt/airflow/logs
       - airflow_db:/opt/airflow/db
     # Custom entrypoint: pre-create admin user from AIRFLOW_ADMIN_USER /

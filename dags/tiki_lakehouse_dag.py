@@ -1,5 +1,6 @@
 from airflow import DAG
 from airflow.operators.bash import BashOperator
+from airflow.utils.trigger_rule import TriggerRule
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -33,8 +34,9 @@ with DAG(
 
     # Task 1: Crawl. Every 5 categories the crawler fires a dbt staging refresh
     # so silver tables become queryable mid-crawl via Trino/Superset instead of
-    # waiting until the crawl finishes. Tasks are sequential in Airflow, so this
-    # never overlaps with the final dbt task below.
+    # waiting until the crawl finishes. `execution_timeout` caps the task so
+    # Airflow forcibly kills it after 45 minutes instead of hanging — partial
+    # crawls still leave plenty of fresh bronze for the downstream dbt task.
     task_crawl = BashOperator(
         task_id='crawl_tiki_data',
         bash_command=f"cd {PROJECT_ROOT} && {PROJECT_PY} crawler/fetch_tiki.py",
@@ -44,12 +46,14 @@ with DAG(
             "DBT_PROJECT_DIR": f"{PROJECT_ROOT}/dbt_tiki",
         },
         append_env=True,
+        execution_timeout=timedelta(minutes=45),
     )
 
-    # Task 2: rebuild staging + marts in one dbt invocation. Staging acts as a
-    # backstop for any interleaved refresh that failed during the crawl (cheap
-    # since materializations are idempotent COPYs); marts is the only place
-    # dim/fct tables get built.
+    # Task 2: rebuild staging + marts. `trigger_rule=ALL_DONE` means this runs
+    # regardless of whether crawl succeeded, failed, or hit its timeout — so a
+    # stuck crawl never blocks marts from refreshing on whatever bronze the
+    # crawler did manage to write (plus the interleaved staging refreshes that
+    # already populated silver mid-crawl).
     task_dbt = BashOperator(
         task_id='run_dbt',
         bash_command=(
@@ -57,6 +61,7 @@ with DAG(
             f"{PROJECT_DBT} run --profiles-dir . "
             '--vars "{bronze_bucket: bronze, silver_bucket: silver, lakehouse_bucket: lakehouse}"'
         ),
+        trigger_rule=TriggerRule.ALL_DONE,
     )
 
     # Task 3: Archive bronze data đã được dbt xử lý → _processed/
@@ -69,7 +74,7 @@ with DAG(
     # Task 4: Chạy script analytics để vẽ biểu đồ mới
     task_analytics = BashOperator(
         task_id='generate_analytics_report',
-        bash_command=f"cd {PROJECT_ROOT} && {PROJECT_PY} analytics_plot.py",
+        bash_command=f"cd {PROJECT_ROOT} && {PROJECT_PY} scripts/analytics_plot.py",
     )
 
     # Luồng: Crawl → dbt (staging + marts) → Archive → Analytics

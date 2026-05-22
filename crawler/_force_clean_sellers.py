@@ -5,6 +5,7 @@ pandas/MinIO quirks.
 Run:
     docker exec tiki_airflow /opt/project-venv/bin/python /opt/project/crawler/_force_clean_sellers.py
 """
+
 import json
 import os
 from io import BytesIO
@@ -35,7 +36,10 @@ def _force_string(arr):
     if pa.types.is_struct(arr.type) or pa.types.is_list(arr.type):
         py_values = arr.to_pylist()
         return pa.array(
-            [json.dumps(v, ensure_ascii=False, default=str) if v is not None else None for v in py_values],
+            [
+                json.dumps(v, ensure_ascii=False, default=str) if v is not None else None
+                for v in py_values
+            ],
             type=pa.string(),
         )
     return arr.cast(pa.string())
@@ -84,4 +88,6 @@ for key in keys:
 
 print("=== DONE ===")
 print("Run the binder isolator again to confirm new_version is gone:")
-print("  docker exec tiki_airflow /opt/project-venv/bin/python /opt/project/crawler/_isolate_binder_bug.py")
+print(
+    "  docker exec tiki_airflow /opt/project-venv/bin/python /opt/project/crawler/_isolate_binder_bug.py"
+)

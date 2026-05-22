@@ -40,16 +40,22 @@ A self-contained lakehouse demo for Tiki product and review analytics. This proj
 │   ├── tests/               # Pytest unit tests
 │   └── fetch_tiki.py        # Main crawler entrypoint
 ├── dags/                    # Airflow DAG definitions
-│   └── tiki_lakehouse_dag.py
+│   ├── tiki_lakehouse_dag.py
+│   └── tiki_dbt_refresh_dag.py
 ├── dbt_tiki/                # dbt project and DuckDB profile
 │   ├── models/              # staging and marts SQL models
 │   ├── dbt_project.yml
 │   └── profiles.yml
+├── scripts/                 # Scripts invoked by DAGs / bootstrap
+│   ├── analytics_plot.py    # Generates chart PNGs from marts (DAG task)
+│   └── run_project.sh       # One-shot project bootstrap
+├── tools/                   # Manual debug / inspection utilities
+│   ├── check_buckets.py     # List MinIO bucket contents
+│   └── check_duckdb.py      # Inspect local tiki.duckdb tables
 ├── trino/                   # Trino configuration and catalogs
 │   └── etc/catalog/
 ├── Makefile                 # Common local commands
 ├── docker-compose.yml       # Infrastructure services stack
-├── run_project.sh           # Convenience startup script
 └── pyproject.toml           # Python package and dependency config
 ```
 

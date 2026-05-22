@@ -4,6 +4,7 @@ for the seller staging model.
 Run:
     docker exec tiki_airflow /opt/project-venv/bin/python /opt/project/crawler/_find_ctas_workaround.py
 """
+
 import os
 
 import duckdb

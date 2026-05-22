@@ -3,6 +3,7 @@
 Run:
     docker exec tiki_airflow /opt/project-venv/bin/python /opt/project/crawler/_check_seller_types.py
 """
+
 import os
 
 import duckdb
@@ -18,18 +19,21 @@ bronze = os.getenv("BRONZE_BUCKET", "bronze")
 pattern = f"s3://{bronze}/tiki_sellers/dt=*/run_id=*/*.parquet"
 
 print("=== 1. DESCRIBE unified read (what DuckDB resolves columns to) ===")
-df = c.execute(f"""
+df = c.execute(
+    f"""
     DESCRIBE SELECT * FROM read_parquet(
         '{pattern}',
         hive_partitioning = FALSE,
         union_by_name = TRUE
     )
-""").df()
+"""
+).df()
 print(df.to_string())
 print()
 
 print("=== 2. typeof(data) per file ===")
-df = c.execute(f"""
+df = c.execute(
+    f"""
     SELECT filename, typeof(data) AS t, COUNT(*) AS rows
     FROM read_parquet(
         '{pattern}',
@@ -39,26 +43,36 @@ df = c.execute(f"""
     )
     GROUP BY filename, t
     ORDER BY filename
-""").df()
+"""
+).df()
 print(df.to_string(max_colwidth=120))
 print()
 
 print("=== 3. Per-file independent read (no union) ===")
-files = c.execute(f"""
+files = (
+    c.execute(
+        f"""
     SELECT DISTINCT file_name FROM parquet_schema('{pattern}')
-""").df()["file_name"].tolist()
+"""
+    )
+    .df()["file_name"]
+    .tolist()
+)
 
 for f in files:
     print(f"\n--- {f} ---")
-    schema = c.execute(f"""
+    schema = c.execute(
+        f"""
         DESCRIBE SELECT * FROM read_parquet('{f}', hive_partitioning = FALSE)
-    """).df()
+    """
+    ).df()
     print(schema.to_string())
 
 print()
 print("=== 4. Try the actual model raw CTE in isolation ===")
 try:
-    rows = c.execute(f"""
+    rows = c.execute(
+        f"""
         SELECT
             CAST(data AS VARCHAR) AS data,
             CAST(extracted_at AS VARCHAR) AS extracted_at,
@@ -70,7 +84,8 @@ try:
             union_by_name = TRUE
         )
         LIMIT 5
-    """).df()
+    """
+    ).df()
     print("OK — raw CTE returns:")
     print(rows.to_string(max_colwidth=80))
 except Exception as e:
@@ -79,7 +94,8 @@ except Exception as e:
 print()
 print("=== 5. Try the full flattened+ranked pipeline ===")
 try:
-    rows = c.execute(f"""
+    rows = c.execute(
+        f"""
         WITH raw AS (
             SELECT
                 CAST(data AS VARCHAR) AS data,
@@ -103,7 +119,8 @@ try:
             WHERE data IS NOT NULL
         )
         SELECT COUNT(*) AS n FROM flattened
-    """).df()
+    """
+    ).df()
     print(f"OK — flattened count: {rows.iloc[0]['n']}")
 except Exception as e:
     print(f"FAIL: {type(e).__name__}: {e}")

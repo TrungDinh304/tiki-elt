@@ -28,7 +28,7 @@ def _connect():
     return conn
 
 
-def plot_top_books(conn, out_dir):
+def plot_top_products(conn, out_dir):
     query = f"""
         SELECT product_name, MAX(quantity_sold) AS quantity_sold
         FROM read_parquet('{MARTS_PREFIX}/fct_tiki_books.parquet')
@@ -37,10 +37,10 @@ def plot_top_books(conn, out_dir):
         ORDER BY quantity_sold DESC
         LIMIT 10
     """
-    print("Querying top 10 books...")
+    print("Querying top 10 products...")
     df = conn.execute(query).df()
     if df.empty:
-        print("  No data in fct_tiki_books — skipping top_10_books chart")
+        print("  No data in fct_tiki_books — skipping top_10_products chart")
         return
 
     df["short_name"] = df["product_name"].apply(
@@ -49,9 +49,9 @@ def plot_top_books(conn, out_dir):
 
     plt.figure(figsize=(12, 7))
     ax = sns.barplot(data=df, x="quantity_sold", y="short_name", palette="viridis")
-    plt.title("Top 10 Best-Selling Books on Tiki", fontsize=16, fontweight="bold", pad=20)
+    plt.title("Top 10 Best-Selling Products on Tiki", fontsize=16, fontweight="bold", pad=20)
     plt.xlabel("Quantity Sold", fontsize=12)
-    plt.ylabel("Book Name", fontsize=12)
+    plt.ylabel("Product Name", fontsize=12)
 
     for p in ax.patches:
         width = p.get_width()
@@ -63,7 +63,7 @@ def plot_top_books(conn, out_dir):
             va="center",
         )
     plt.tight_layout()
-    out = os.path.join(out_dir, "top_10_books.png")
+    out = os.path.join(out_dir, "top_10_products.png")
     plt.savefig(out, dpi=300)
     plt.close()
     print(f"  Saved: {out}")
@@ -160,7 +160,7 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
     print(f"Connecting to MinIO at {S3_ENDPOINT} (bucket={LAKEHOUSE_BUCKET})...")
     conn = _connect()
-    plot_top_books(conn, out_dir)
+    plot_top_products(conn, out_dir)
     plot_top_categories(conn, out_dir)
     plot_top_sellers(conn, out_dir)
     conn.close()
