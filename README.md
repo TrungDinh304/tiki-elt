@@ -157,6 +157,7 @@ make airflow-start
 | Trino UI | `http://localhost:8080` |
 | Superset | `http://localhost:8088` |
 | Airflow | `http://localhost:8081` |
+| Chatbot (RAG) | `http://localhost:8501` |
 
 ---
 
@@ -210,11 +211,61 @@ uv run pytest crawler/tests/
 
 ---
 
+## RAG chatbot
+
+A Streamlit chatbot tư vấn sản phẩm Tiki sits on top of the lakehouse marts:
+
+1. `tiki_rag_indexer` DAG (or `python scripts/rag_index.py` manually) reads
+   `dim_products` + top-5 reviews per product, embeds each product **locally**
+   with sentence-transformers (BGE-M3, multilingual), and upserts into
+   `rag.product_embeddings` on Postgres (pgvector). No external API call.
+2. The `chatbot` service (port 8501) does hybrid retrieval (structured price
+   / rating / category filters → pgvector cosine top-K) and streams a
+   DeepSeek answer back via ds2api for the chat completion step.
+
+The BGE-M3 weights (~2.3GB) download on the first indexer or chatbot run into
+the shared `hf_cache` docker volume, so subsequent containers reuse them.
+
+Setup:
+
+```bash
+# 1. Create ds2api/config.json from the template. Fill in your DeepSeek
+#    email/password (sign up at chat.deepseek.com) and pick any random
+#    string for the `keys`/`api_keys` entries — that's the token your
+#    chatbot will send to ds2api.
+cp ds2api/config.example.json ds2api/config.json
+# then edit ds2api/config.json
+
+# 2. Set DS2API_KEY in `.env` to the SAME key you put in config.json.
+#    (See .env.example for all RAG-related vars.)
+
+# 3. Bring everything up. `ds2api` proxies DeepSeek; `rag-indexer-init`
+#    runs once and populates rag.product_embeddings from existing marts.
+docker compose up -d --build
+
+# 4. Open the chat UI: http://localhost:8501
+#    (ds2api admin UI is at http://localhost:6011)
+```
+
+**Security note**: ds2api authenticates by replaying your DeepSeek web login
+session. This may violate DeepSeek's ToS for programmatic use. For
+production, point `DS2API_BASE_URL` at the official paid DeepSeek API
+(`https://api.deepseek.com/v1`) or OpenRouter, with a real provider key.
+
+Re-indexing happens automatically at 07:00 daily via the `tiki_rag_indexer`
+DAG. To force a re-index manually:
+
+```bash
+docker exec tiki_airflow /opt/project-venv/bin/python /opt/project/scripts/rag_index.py
+```
+
 ## Notes
 
 - `dbt_tiki/profiles.yml` is configured for DuckDB with MinIO S3 access.
 - The Airflow container maps local DAGs and crawler code for easy development.
 - `docker compose` uses `.env` values to configure services and credentials.
+- Postgres image is `pgvector/pgvector:pg15` (drop-in for `postgres:15`) so the
+  RAG indexer can `CREATE EXTENSION vector` on the existing metastore DB.
 
 ---
 

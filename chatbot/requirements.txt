@@ -1,0 +1,7 @@
+streamlit>=1.32
+openai>=1.40
+psycopg2-binary>=2.9
+pgvector>=0.2.5
+sentence-transformers>=2.7
+# torch is installed separately in the Dockerfile from the CPU-only index to
+# avoid pulling the ~2GB CUDA wheel.

@@ -24,6 +24,15 @@ RUN apt-get update \
         "dbt-duckdb" \
         "matplotlib" \
         "seaborn" \
+    # RAG indexer deps. Install CPU-only torch from the PyTorch CPU index first
+    # so sentence-transformers doesn't pull the ~2GB CUDA wheel from PyPI.
+    && /usr/local/bin/uv pip install --python ${PROJECT_VENV}/bin/python --no-cache \
+        --index-url https://download.pytorch.org/whl/cpu \
+        "torch>=2.2" \
+    && /usr/local/bin/uv pip install --python ${PROJECT_VENV}/bin/python --no-cache \
+        "psycopg2-binary>=2.9" \
+        "pgvector>=0.2.5" \
+        "sentence-transformers>=2.7" \
     && chmod -R a+rx ${PROJECT_VENV}
 
 # Wrapper that pre-creates the admin user from env before handing off to

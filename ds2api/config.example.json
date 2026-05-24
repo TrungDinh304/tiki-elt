@@ -1,0 +1,38 @@
+{
+  "_comment": "Copy to ds2api/config.json and fill in your DeepSeek account + a client API key. config.json is gitignored so secrets don't leak. SECURITY: this mode uses your DeepSeek web session — may violate DeepSeek ToS. Choose paid DeepSeek API or OpenRouter for production.",
+
+  "keys": [
+    "sk-replace-with-your-own-random-key"
+  ],
+
+  "api_keys": [
+    {
+      "key": "sk-replace-with-your-own-random-key",
+      "name": "tiki-chatbot",
+      "remark": "Used by tiki-elt chatbot service"
+    }
+  ],
+
+  "accounts": [
+    {
+      "name": "primary",
+      "remark": "DeepSeek web login — sign up at chat.deepseek.com",
+      "email": "your-email@example.com",
+      "password": "your-deepseek-password"
+    }
+  ],
+
+  "model_aliases": {
+    "deepseek-chat": "deepseek-v4-flash",
+    "deepseek-reasoner": "deepseek-v4-pro"
+  },
+
+  "admin": {
+    "username": "admin",
+    "password": "change-me"
+  },
+
+  "runtime": {
+    "max_inflight_per_account": 2
+  }
+}

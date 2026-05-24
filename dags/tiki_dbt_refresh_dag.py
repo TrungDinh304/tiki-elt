@@ -38,9 +38,8 @@ with DAG(
     'tiki_dbt_refresh',
     default_args=default_args,
     description='Rebuild dbt staging+marts and analytics from existing bronze, every 2 hours',
-    # Offset by 30 min from the main daily DAG (which runs at 0:00) so the
-    # first 2h slot lands at 0:30, well after the daily crawl normally starts.
-    schedule='30 */2 * * *',
+    # every day at 6am 
+    schedule='0 6 * * *',
     start_date=datetime(2026, 5, 22),
     catchup=False,
     max_active_runs=1,

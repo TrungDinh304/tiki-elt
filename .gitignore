@@ -35,6 +35,8 @@ dbt_tiki/logs/
 
 # Secrets
 .secrets/
+# ds2api stores DeepSeek email/password — never commit. Use config.example.json as template.
+ds2api/config.json
 
 # Data Previews
 # preview_data/

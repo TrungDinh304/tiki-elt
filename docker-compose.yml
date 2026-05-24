@@ -36,9 +36,11 @@ services:
       - lakehouse_net
     restart: "no"
 
-  # 2. POSTGRES - Metastore & Superset Backend
+  # 2. POSTGRES - Metastore & Superset Backend + pgvector for RAG embeddings.
+  # Image is pgvector/pgvector:pg15 (drop-in for postgres:15) so the chatbot
+  # indexer can `CREATE EXTENSION vector` without a separate vector DB service.
   postgres:
-    image: postgres:15
+    image: pgvector/pgvector:pg15
     container_name: tiki_postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
@@ -135,6 +137,14 @@ services:
       LAKEHOUSE_BUCKET: ${LAKEHOUSE_BUCKET:-lakehouse}
       BUDGET_PER_RUN: ${BUDGET_PER_RUN:-50}
       PAGES_PER_CATEGORY: ${PAGES_PER_CATEGORY:-5}
+      # RAG indexer (scripts/rag_index.py) — local sentence-transformers
+      # embedding + pgvector upsert. PG_DSN points at the in-network postgres.
+      # HF_HOME is mounted onto the `hf_cache` volume so the BGE-M3 weights
+      # (~2.3GB) survive container rebuilds and are shared with the chatbot.
+      PG_DSN: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-m3}
+      EMBEDDING_DIM: ${EMBEDDING_DIM:-1024}
+      HF_HOME: /opt/hf_cache
     volumes:
       - ./dags:/opt/project/dags
       - ./crawler:/opt/project/crawler
@@ -144,6 +154,7 @@ services:
       - ./images:/opt/project/images
       - ./airflow_home/logs:/opt/airflow/logs
       - airflow_db:/opt/airflow/db
+      - hf_cache:/opt/hf_cache
     # Custom entrypoint: pre-create admin user from AIRFLOW_ADMIN_USER /
     # AIRFLOW_ADMIN_PASSWORD then hand off to airflow standalone (which
     # skips user creation when the admin already exists).
@@ -152,6 +163,109 @@ services:
     depends_on:
       - postgres
       - minio
+    networks:
+      - lakehouse_net
+    restart: "no"
+
+
+  # 7. ds2api - OpenAI-compatible proxy that fronts DeepSeek's web chat
+  # session (login via email/password or mobile in config.json). Used by the
+  # chatbot for chat completions. Listens on 5001 inside the network.
+  # SECURITY NOTE: ds2api authenticates by replaying your DeepSeek web login
+  # — using it programmatically may violate DeepSeek's ToS. Choose a hosted
+  # API (DeepSeek paid API, OpenRouter, etc.) for any non-experimental use.
+  ds2api:
+    image: ghcr.io/cjackhwang/ds2api:latest
+    container_name: tiki_ds2api
+    ports:
+      # Expose to host for direct curl / debugging; chatbot reaches it via
+      # the in-network DNS name `ds2api:5001` regardless of this mapping.
+      - "${DS2API_HOST_PORT:-6011}:5001"
+    environment:
+      TZ: Asia/Ho_Chi_Minh
+      LOG_LEVEL: INFO
+      DS2API_ADMIN_KEY: ${DS2API_ADMIN_KEY:-ds2api}
+      DS2API_CONFIG_PATH: /data/config.json
+    volumes:
+      - ./ds2api/config.json:/data/config.json
+    networks:
+      - lakehouse_net
+    restart: "unless-stopped"
+
+  # 8. RAG indexer init - one-shot. Runs scripts/rag_index.py on `docker
+  # compose up` so the chatbot has embeddings ready out of the box. Reuses
+  # the tiki-airflow:local image (already has venv + sentence-transformers).
+  # If marts don't exist yet (fresh stack), the script exits 0 with a hint —
+  # not a failure — and the user re-runs after the daily pipeline.
+  rag-indexer-init:
+    build:
+      # Reuse the airflow image (same Dockerfile) so this service has the
+      # project venv with sentence-transformers + psycopg2-binary already
+      # baked in. Compose dedupes the build because both services share
+      # the same `image:` tag.
+      context: .
+      dockerfile: airflow/Dockerfile
+    image: tiki-airflow:local
+    container_name: tiki_rag_indexer_init
+    # Run as root so the Hugging Face cache volume (created by Docker with
+    # root ownership) is writable. The airflow image's default UID 50000
+    # can't write to /opt/hf_cache otherwise. Safe here — this is a one-shot
+    # script, not a long-running airflow process.
+    user: "0:0"
+    depends_on:
+      - postgres
+      - minio
+      - minio-init
+    environment:
+      S3_ENDPOINT_HOST: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      LAKEHOUSE_BUCKET: ${LAKEHOUSE_BUCKET:-lakehouse}
+      PG_DSN: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-m3}
+      EMBEDDING_DIM: ${EMBEDDING_DIM:-1024}
+      HF_HOME: /opt/hf_cache
+      # Force unbuffered stdout so `docker logs` shows progress in real time
+      # instead of holding prints in a 4KB block buffer until exit.
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ./scripts:/opt/project/scripts
+      - hf_cache:/opt/hf_cache
+    entrypoint:
+      - /opt/project-venv/bin/python
+      - -u
+      - /opt/project/scripts/rag_index.py
+    command: []
+    networks:
+      - lakehouse_net
+    restart: "no"
+
+  # 9. CHATBOT - Streamlit RAG UI. Local BGE-M3 embedding (in-container) +
+  # ds2api (DeepSeek) for chat completion. The HF model cache is shared with
+  # the airflow container via `hf_cache` so the 2.3GB weights download once.
+  chatbot:
+    build:
+      context: ./chatbot
+    image: tiki-chatbot:local
+    container_name: tiki_chatbot
+    ports:
+      - "8501:8501"
+    environment:
+      PG_DSN: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-m3}
+      # Default points at the in-network ds2api service. Override to a remote
+      # endpoint (DeepSeek API, OpenRouter) by setting DS2API_BASE_URL in .env.
+      DS2API_BASE_URL: ${DS2API_BASE_URL:-http://ds2api:5001/v1}
+      # Must match one of the `keys` entries in ds2api/config.json (or a real
+      # provider key if pointing at DeepSeek/OpenRouter).
+      DS2API_KEY: ${DS2API_KEY:-sk-dummy}
+      CHAT_MODEL: ${CHAT_MODEL:-deepseek-v4-flash}
+      HF_HOME: /opt/hf_cache
+    volumes:
+      - hf_cache:/opt/hf_cache
+    depends_on:
+      - postgres
+      - ds2api
     networks:
       - lakehouse_net
     restart: "no"
@@ -166,3 +280,6 @@ volumes:
   pg_data:
   trino_metastore:
   airflow_db:
+  # Shared Hugging Face cache for sentence-transformers (BGE-M3 weights).
+  # Used by both the airflow venv (indexer DAG) and the chatbot container.
+  hf_cache:
