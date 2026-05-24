@@ -1,5 +1,15 @@
 {{ config(location=external_path('silver')) }}
 
+{#- Check if category files exist before attempting to read -#}
+{% set has_files = True %}
+{% if execute %}
+    {% set result = run_query("SELECT COUNT(*) as cnt FROM glob('s3://" ~ var("bronze_bucket") ~ "/tiki_categories/dt=*/run_id=*/*.parquet')") %}
+    {% if result[0][0] == 0 %}
+        {% set has_files = False %}
+    {% endif %}
+{% endif %}
+
+{% if has_files %}
 WITH raw AS (
     SELECT *
     FROM READ_PARQUET(
@@ -48,3 +58,21 @@ SELECT
     run_id
 FROM ranked
 WHERE rn = 1
+
+{% else %}
+-- No new category files found - return empty result set with correct schema
+SELECT
+    NULL::VARCHAR as menu_id,
+    NULL::BIGINT as category_id,
+    NULL::VARCHAR as category_name,
+    NULL::VARCHAR as link,
+    NULL::VARCHAR as parent_menu_id,
+    NULL::BIGINT as parent_category_id,
+    NULL::INTEGER as category_level,
+    NULL::VARCHAR as path,
+    NULL::BOOLEAN as is_leaf,
+    NULL::TIMESTAMP as extracted_at_ts,
+    NULL::VARCHAR as dt,
+    NULL::VARCHAR as run_id
+WHERE FALSE
+{% endif %}
