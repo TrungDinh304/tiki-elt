@@ -2,7 +2,7 @@
 
 Flow per user turn:
   user query → embed → pgvector retrieval (with optional structured filters)
-  → build context → stream chat completion from ds2api → display.
+  → build context → stream chat completion from the LLM gateway → display.
 
 Sidebar filters (price range, min rating, category keyword) are applied as
 WHERE clauses before the vector search so high-selectivity filters keep
@@ -19,7 +19,7 @@ from rag import RetrievalFilter, retrieve
 
 st.set_page_config(page_title="Tiki Tư Vấn Sản Phẩm", page_icon=":books:", layout="wide")
 st.title("Tiki — Trợ lý tư vấn sản phẩm")
-st.caption("RAG trên data mart Tiki | pgvector + DeepSeek (qua ds2api)")
+st.caption("RAG trên data mart Tiki | pgvector + LLM gateway (9router/OpenAI-compatible)")
 
 with st.sidebar:
     st.header("Bộ lọc")

@@ -105,19 +105,113 @@ make setup
 ## Start local stack
 
 ```bash
-docker compose --env-file .env up -d
+make up
 ```
 
-This brings up:
+`make up` brings services up in dependency order (infra → BI/orchestrator →
+chatbot), waits for Airflow's metadata DB to be reachable, and prints all
+service URLs. Works the same in PowerShell, Git Bash, or a POSIX shell because
+the recipe runs through GNU Make's shell — you don't need to copy multi-line
+shell loops into your terminal.
 
-- MinIO
-- PostgreSQL
+Services brought up:
+
+- MinIO + `minio-init` (creates `bronze` / `silver` / `lakehouse` buckets)
+- PostgreSQL (pgvector)
 - Trino
 - Superset
 - Redis
 - Airflow
+- chatbot (Streamlit RAG UI — calls an external OpenAI-compatible LLM gateway, see RAG section)
 
-The compose stack also initializes the required MinIO buckets.
+Raw equivalent (if you don't want to use Make): `docker compose --env-file .env up -d`.
+
+---
+
+## First-time bootstrap / Full reset
+
+Use this when starting from an empty state (no volumes) or after `docker compose down -v`.
+
+### Caveats before wiping volumes
+
+- The `hf_cache` volume stores the **BGE-M3 model (~2.3GB)**. Wiping it forces a
+  re-download (~10–30 min) on the next `rag-indexer-init` or `chatbot` start.
+  Prefer **Option B (selective wipe)** below to preserve it.
+- `.env` is bind-mounted, so the LLM gateway credentials (`LLM_BASE_URL`,
+  `LLM_API_KEY`, `CHAT_MODEL`) survive `down -v`. The chatbot reaches a
+  gateway running on the docker host via `host.docker.internal:<port>` —
+  make sure the gateway (e.g. 9router) is actually running before opening
+  the chatbot, otherwise streaming requests fail with `Connection refused`.
+- After `airflow_db` is wiped, Airflow recreates the admin user with a new
+  internal id. Any stale browser cookie at `http://localhost:8081` returns
+  HTTP 500 — **clear cookies / hard refresh** after the airflow container reboots.
+- `BUDGET_PER_RUN=1` in `.env` only crawls **one leaf category per run** — the
+  RAG index will be very narrow. Bump to `BUDGET_PER_RUN=20` (or higher) before
+  the first crawl if you want broader coverage out of the box. With
+  `PAGES_PER_CATEGORY=20` and 1.5–3.5 s request delays, ~20 categories take 30–60 min.
+
+### Option A — wipe everything (slowest first run)
+
+```bash
+docker compose down -v
+```
+
+### Option B — wipe state, keep model cache (recommended)
+
+List volumes first (`docker volume ls | findstr tiki-elt` in PowerShell, or
+`grep` in bash) to confirm exact names, then remove the state volumes —
+keep `hf_cache` to avoid re-downloading BGE-M3:
+
+```bash
+docker compose down
+docker volume rm tiki-elt_minio_data tiki-elt_pg_data tiki-elt_trino_metastore tiki-elt_airflow_db
+```
+
+### Bring the stack up + bootstrap
+
+```bash
+make up              # docker bring-up in dependency order, waits for Airflow ready
+make bootstrap       # unpause all DAGs + trigger tiki_category_monthly_pipeline
+```
+
+Both targets are cross-shell (PowerShell / Git Bash / POSIX) — Make runs the
+recipe through its own shell, so the bash-style loop inside `bootstrap` works
+even when you invoke it from PowerShell.
+
+`make bootstrap` triggers the category DAG only. Wait for it to finish in the
+Airflow UI ([http://localhost:8081](http://localhost:8081), ~1–2 min), then
+kick off the main pipeline:
+
+```bash
+docker compose exec airflow airflow dags trigger tiki_lakehouse_daily_pipeline
+```
+
+The main pipeline runs `crawl → dbt → archive → analytics + rag_index` and
+populates pgvector at the end. The chatbot at
+[http://localhost:8501](http://localhost:8501) returns empty results until this
+first run finishes.
+
+### Verify each stage
+
+```bash
+# Marts materialized?
+docker compose exec airflow ls /opt/project/dbt_tiki/target/
+
+# Embeddings landed in pgvector? (single line — works in PowerShell + bash)
+docker compose exec postgres psql -U admin -d metastore -c "SELECT category_name, COUNT(*) FROM rag.product_embeddings GROUP BY 1 ORDER BY 2 DESC LIMIT 10;"
+
+# Bronze partitions in MinIO — open http://localhost:9001 → bronze bucket
+```
+
+### Filling specific category gaps later
+
+Once the stack is running, you can add coverage for a missing category without
+re-running the full daily pipeline:
+
+```bash
+make crawl-cats IDS=8322,1882                   # comma-separated leaf ids
+docker compose exec airflow airflow dags trigger tiki_rag_indexer
+```
 
 ---
 
@@ -166,9 +260,11 @@ make airflow-start
 | Command | Description |
 | :--- | :--- |
 | `make setup` | Create local environment and install dependencies |
-| `make up` | Start Docker services |
+| `make up` | Bring up the full stack in dependency order (waits for Airflow) |
+| `make bootstrap` | One-shot: unpause DAGs + trigger category bootstrap (after a fresh `airflow_db`) |
 | `make down` | Stop Docker services |
-| `make crawl` | Run the Tiki crawler |
+| `make crawl` | Run the Tiki crawler (watermark-rotated, picks oldest categories) |
+| `make crawl-cats IDS=...` | Crawl specific leaf category ids (bypasses rotation) |
 | `make crawl-categories` | Run the category crawler |
 | `make dbt-run` | Run dbt models with DuckDB |
 | `make archive` | Archive processed bronze partitions |
@@ -220,8 +316,9 @@ A Streamlit chatbot tư vấn sản phẩm Tiki sits on top of the lakehouse mar
    with sentence-transformers (BGE-M3, multilingual), and upserts into
    `rag.product_embeddings` on Postgres (pgvector). No external API call.
 2. The `chatbot` service (port 8501) does hybrid retrieval (structured price
-   / rating / category filters → pgvector cosine top-K) and streams a
-   DeepSeek answer back via ds2api for the chat completion step.
+   / rating / category filters → pgvector cosine top-K) and streams the answer
+   from an external OpenAI-compatible LLM gateway (defaults to 9router
+   running on the docker host).
 
 The BGE-M3 weights (~2.3GB) download on the first indexer or chatbot run into
 the shared `hf_cache` docker volume, so subsequent containers reuse them.
@@ -229,28 +326,27 @@ the shared `hf_cache` docker volume, so subsequent containers reuse them.
 Setup:
 
 ```bash
-# 1. Create ds2api/config.json from the template. Fill in your DeepSeek
-#    email/password (sign up at chat.deepseek.com) and pick any random
-#    string for the `keys`/`api_keys` entries — that's the token your
-#    chatbot will send to ds2api.
-cp ds2api/config.example.json ds2api/config.json
-# then edit ds2api/config.json
+# 1. Start your LLM gateway on the host (9router, OpenRouter local proxy,
+#    Ollama with OpenAI mode, etc). Default config points at
+#    http://host.docker.internal:20128/v1 — adjust LLM_BASE_URL in .env if
+#    yours listens on a different port.
 
-# 2. Set DS2API_KEY in `.env` to the SAME key you put in config.json.
+# 2. Set LLM_API_KEY + CHAT_MODEL in `.env` to whatever your gateway expects.
 #    (See .env.example for all RAG-related vars.)
 
-# 3. Bring everything up. `ds2api` proxies DeepSeek; `rag-indexer-init`
-#    runs once and populates rag.product_embeddings from existing marts.
+# 3. Bring everything up. `rag-indexer-init` runs once and populates
+#    rag.product_embeddings from existing marts.
 docker compose up -d --build
 
 # 4. Open the chat UI: http://localhost:8501
-#    (ds2api admin UI is at http://localhost:6011)
 ```
 
-**Security note**: ds2api authenticates by replaying your DeepSeek web login
-session. This may violate DeepSeek's ToS for programmatic use. For
-production, point `DS2API_BASE_URL` at the official paid DeepSeek API
-(`https://api.deepseek.com/v1`) or OpenRouter, with a real provider key.
+**Network note**: the chatbot container reaches the host gateway via
+`host.docker.internal:<port>`. Compose sets `extra_hosts:
+host.docker.internal:host-gateway` so this works on Linux too (Docker Desktop
+provides it automatically on Mac/Windows). If you see `Connection refused`,
+the gateway either isn't running or is bound to `127.0.0.1` only — bind it
+to `0.0.0.0:<port>` so containers can reach it.
 
 Re-indexing happens automatically at 07:00 daily via the `tiki_rag_indexer`
 DAG. To force a re-index manually:
@@ -280,9 +376,9 @@ This repository is a hands-on lakehouse demo for e-commerce analytics. It is bui
 ```
 Daily DAG:
   crawl_tiki_data  ────────────────────────────────────────►  run_dbt_marts ─► archive ─► analytics
-    │                                                              │
+    │                                                               │
     │  TRIGGER_DBT_EVERY_N=5 (set qua task env)                     │
-    │                                                              │
+    │                                                               │
     ├─ cat 1..5 crawl → dbt run --select path:models/staging  ◄── Trino thấy data NGAY
     ├─ cat 6..10 crawl → dbt staging                          ◄── Silver fresh hơn
     ├─ cat 11..15 ...                                                 

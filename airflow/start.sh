@@ -6,6 +6,18 @@
 # survive `docker compose down` + `up` as long as the postgres volume stays.
 set -euo pipefail
 
+# If launched as root (image USER root) fix volume ownership before dropping
+# to the airflow user. /opt/hf_cache is a named volume created by Docker with
+# root ownership; rag-indexer-init writes into it as root, so by the time
+# airflow's rag_index_products task runs (as UID 50000) it gets EACCES.
+# Chown is idempotent — safe to run every boot.
+if [ "$(id -u)" = "0" ]; then
+    echo "[start.sh] Running as root: fixing /opt/hf_cache ownership"
+    chown -R 50000:0 /opt/hf_cache 2>/dev/null || true
+    echo "[start.sh] Re-executing as airflow user (50000)"
+    exec runuser -u airflow -- "$0" "$@"
+fi
+
 ADMIN_USER="${AIRFLOW_ADMIN_USER:-admin}"
 ADMIN_PASS="${AIRFLOW_ADMIN_PASSWORD:-admin}"
 ADMIN_EMAIL="${AIRFLOW_ADMIN_EMAIL:-admin@local}"

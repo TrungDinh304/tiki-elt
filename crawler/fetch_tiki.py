@@ -437,15 +437,41 @@ if __name__ == "__main__":
     from category_selector import (
         plan_crawl,
         bump_watermark,
+        read_watermark,
         write_watermark,
     )
 
-    plan = plan_crawl(BUDGET_PER_RUN)
-    print(
-        f"Found {plan['leaves_total']} leaf categories; "
-        f"crawling {len(plan['chosen'])} this run "
-        f"(budget={BUDGET_PER_RUN}, pages={PAGES_PER_CATEGORY})"
-    )
+    # On-demand override: when CRAWL_CATEGORY_IDS is set (comma-separated leaf
+    # ids), skip the watermark rotation and crawl exactly those categories.
+    # Used by `make crawl-cats IDS=...` to fill specific gaps in coverage
+    # (e.g. add the Sách category to the RAG index without waiting for the
+    # daily rotation to reach it).
+    override = os.getenv("CRAWL_CATEGORY_IDS", "").strip()
+    if override:
+        chosen = [int(x) for x in override.split(",") if x.strip()]
+        bronze = os.getenv("BRONZE_BUCKET", "bronze")
+        endpoint = os.getenv("MINIO_ENDPOINT", "http://localhost:9000")
+        ak = os.getenv("MINIO_ACCESS_KEY", "admin")
+        sk = os.getenv("MINIO_SECRET_KEY", "minio_password")
+        plan = {
+            "bronze": bronze,
+            "endpoint": endpoint,
+            "access_key": ak,
+            "secret_key": sk,
+            "watermark": read_watermark(bronze, endpoint, ak, sk),
+            "chosen": chosen,
+        }
+        print(
+            f"On-demand crawl: {len(chosen)} categories = {chosen} "
+            f"(pages={PAGES_PER_CATEGORY}, bypassing watermark rotation)"
+        )
+    else:
+        plan = plan_crawl(BUDGET_PER_RUN)
+        print(
+            f"Found {plan['leaves_total']} leaf categories; "
+            f"crawling {len(plan['chosen'])} this run "
+            f"(budget={BUDGET_PER_RUN}, pages={PAGES_PER_CATEGORY})"
+        )
     if not plan["chosen"]:
         raise SystemExit(
             "No leaf categories available. Run crawler/fetch_category.py first "

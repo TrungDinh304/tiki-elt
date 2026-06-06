@@ -1,6 +1,7 @@
-"""ds2api (OpenAI-compatible) client for chat completions.
+"""OpenAI-compatible LLM client for chat completions.
 
-Embedding is handled locally — see `embeddings.py`.
+Targets any OpenAI-compatible gateway — default is 9router running on the
+docker host. Embedding is handled locally — see `embeddings.py`.
 """
 from __future__ import annotations
 
@@ -8,9 +9,9 @@ import os
 
 from openai import OpenAI
 
-DS2API_BASE_URL = os.getenv("DS2API_BASE_URL", "http://host.docker.internal:8000/v1")
-DS2API_KEY = os.getenv("DS2API_KEY", "sk-dummy")
-CHAT_MODEL = os.getenv("CHAT_MODEL", "deepseek-v4-flash")
+LLM_BASE_URL = os.getenv("LLM_BASE_URL", "http://host.docker.internal:20128/v1")
+LLM_API_KEY = os.getenv("LLM_API_KEY", "sk-dummy")
+CHAT_MODEL = os.getenv("CHAT_MODEL", "gc/gemini-3-flash-preview")
 
 _client: OpenAI | None = None
 
@@ -18,7 +19,7 @@ _client: OpenAI | None = None
 def _get_client() -> OpenAI:
     global _client
     if _client is None:
-        _client = OpenAI(base_url=DS2API_BASE_URL, api_key=DS2API_KEY)
+        _client = OpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
     return _client
 
 

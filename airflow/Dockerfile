@@ -39,5 +39,8 @@ RUN apt-get update \
 # `airflow standalone` (standalone otherwise generates a random password).
 COPY --chmod=0755 airflow/start.sh /opt/airflow/start.sh
 
-USER airflow
+# Stay as root so start.sh can chown shared volumes (hf_cache) before dropping
+# to the airflow user. start.sh re-execs itself via runuser to finish the rest
+# as UID 50000 (the airflow user) — airflow standalone never runs as root.
+USER root
 WORKDIR /opt/project

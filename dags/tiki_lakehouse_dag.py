@@ -75,5 +75,22 @@ with DAG(
         bash_command=f"cd {PROJECT_ROOT} && {PROJECT_PY} scripts/analytics_plot.py",
     )
 
-    # Luồng: Crawl → dbt (staging + marts) → Archive → Analytics
+    # Task 5: Embed marts mới vào pgvector cho RAG chatbot. Chạy song song với
+    # archive/analytics sau khi dbt hoàn tất — embedding là consumer độc lập
+    # của lakehouse marts và không nên block archive.
+    # `trigger_rule=ALL_DONE` khớp với `task_dbt`: nếu dbt partial-fail, embed
+    # vẫn chạy trên marts hiện có (script idempotent qua content_hash, và có
+    # guard "marts not yet materialized" tự exit 0).
+    # DAG standalone `tiki_rag_indexer` (07:00) vẫn giữ làm backstop cho khi
+    # main DAG fail hoàn toàn hoặc cho on-demand re-trigger sau `make crawl-cats`.
+    task_rag_index = BashOperator(
+        task_id='rag_index_products',
+        bash_command=f"cd {PROJECT_ROOT} && {PROJECT_PY} scripts/rag_index.py",
+        execution_timeout=timedelta(minutes=30),
+        trigger_rule=TriggerRule.ALL_DONE,
+    )
+
+    # Luồng: Crawl → dbt → Archive → Analytics
+    #                  ↘ rag_index (parallel)
     task_crawl >> task_dbt >> task_archive >> task_analytics
+    task_dbt >> task_rag_index

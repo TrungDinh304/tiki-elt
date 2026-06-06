@@ -1,12 +1,12 @@
 """RAG indexer DAG.
 
 Reads `dim_products` + `fct_reviews` from the lakehouse, embeds each product
-via the ds2api OpenAI-compatible endpoint, and upserts into pgvector. Runs
+locally via sentence-transformers (BGE-M3), and upserts into pgvector. Runs
 after the daily dbt refresh so embeddings reflect the latest marts.
 
-Decoupled from `tiki_lakehouse_daily_pipeline` on purpose — embedding is an
-optional downstream consumer of the lakehouse, and a ds2api outage should
-not retro-fail the main ELT.
+Standalone backstop for the `rag_index_products` task that already lives in
+`tiki_lakehouse_daily_pipeline`; useful for on-demand re-trigger after
+`make crawl-cats` without re-running the full ELT.
 """
 from airflow import DAG
 from airflow.operators.bash import BashOperator
