@@ -33,9 +33,10 @@ with DAG(
 ) as dag:
 
     # Task 1: Crawl. Every 5 categories the crawler fires a dbt staging refresh
-    # so silver tables become queryable mid-crawl via Trino/Superset instead of
-    # waiting until the crawl finishes. The downstream run_dbt uses
-    # trigger_rule=ALL_DONE, so a long or stuck crawl no longer blocks marts.
+    # so silver tables become queryable mid-crawl via Trino (and any BI tool
+    # pointed at it) instead of waiting until the crawl finishes. The
+    # downstream run_dbt uses trigger_rule=ALL_DONE, so a long or stuck crawl
+    # no longer blocks marts.
     task_crawl = BashOperator(
         task_id='crawl_tiki_data',
         bash_command=f"cd {PROJECT_ROOT} && {PROJECT_PY} crawler/fetch_tiki.py",
@@ -83,10 +84,24 @@ with DAG(
     # guard "marts not yet materialized" tự exit 0).
     # DAG standalone `tiki_rag_indexer` (07:00) vẫn giữ làm backstop cho khi
     # main DAG fail hoàn toàn hoặc cho on-demand re-trigger sau `make crawl-cats`.
+    # `python -u` + PYTHONUNBUFFERED để progress print không bị stdout buffer
+    # giấu — nếu không, log dừng ở "Loading weights" và tưởng task treo.
+    # OMP/MKL_NUM_THREADS=2 chừa CPU cho airflow worker gửi heartbeat — không
+    # giới hạn thì PyTorch pin 100% core và scheduler nghĩ task chết → SIGTERM
+    # giữa batch. RAG_INDEX_BATCH=4 giảm peak memory (BGE-M3 + batch 32 docs
+    # ~4000 chars dễ vượt RAM Docker Desktop default → swap thrash 100x slow)
+    # và flush print "upserted X/N" thường xuyên hơn.
     task_rag_index = BashOperator(
         task_id='rag_index_products',
-        bash_command=f"cd {PROJECT_ROOT} && {PROJECT_PY} scripts/rag_index.py",
-        execution_timeout=timedelta(minutes=30),
+        bash_command=f"cd {PROJECT_ROOT} && {PROJECT_PY} -u scripts/rag_index.py",
+        env={
+            "PYTHONUNBUFFERED": "1",
+            "OMP_NUM_THREADS": "2",
+            "MKL_NUM_THREADS": "2",
+            "RAG_INDEX_BATCH": "4",
+        },
+        append_env=True,
+        execution_timeout=timedelta(minutes=90),
         trigger_rule=TriggerRule.ALL_DONE,
     )
 

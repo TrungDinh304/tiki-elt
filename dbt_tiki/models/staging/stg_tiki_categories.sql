@@ -1,26 +1,40 @@
 {{ config(location=external_path('silver')) }}
 
-{#- Check if category files exist before attempting to read -#}
-{% set has_files = True %}
-{% if execute %}
-    {% set result = run_query("SELECT COUNT(*) as cnt FROM glob('s3://" ~ var("bronze_bucket") ~ "/tiki_categories/dt=*/run_id=*/*.parquet')") %}
-    {% if result[0][0] == 0 %}
-        {% set has_files = False %}
-    {% endif %}
-{% endif %}
+{#- Đọc cả live partition lẫn _processed/ — archive_processed.py move
+    bronze/tiki_categories/dt=*/ sang bronze/tiki_categories/_processed/dt=*/
+    ngay sau khi monthly DAG dbt xong. Nếu chỉ glob live path, các daily DAG
+    rebuild dbt sau đó sẽ thấy 0 file → dim_categories ghi đè bằng empty.
+    Categories là small data (~14KB/run), re-read cumulative không tốn gì.
 
-{% if has_files %}
+    DuckDB READ_PARQUET với list of patterns sẽ FAIL nếu bất kỳ pattern nào
+    không match (không skip silently), nên phải build list động — chỉ thêm
+    path có file. -#}
+{%- set bb = var("bronze_bucket") -%}
+{%- set live_pat = "'s3://" ~ bb ~ "/tiki_categories/dt=*/run_id=*/*.parquet'" -%}
+{%- set arch_pat = "'s3://" ~ bb ~ "/tiki_categories/_processed/dt=*/run_id=*/*.parquet'" -%}
+{%- set paths = [] -%}
+{%- if execute -%}
+    {%- set live_n = run_query("SELECT COUNT(*) FROM glob(" ~ live_pat ~ ")")[0][0] -%}
+    {%- if live_n > 0 %}{% do paths.append(live_pat) %}{% endif -%}
+    {%- set arch_n = run_query("SELECT COUNT(*) FROM glob(" ~ arch_pat ~ ")")[0][0] -%}
+    {%- if arch_n > 0 %}{% do paths.append(arch_pat) %}{% endif -%}
+{%- endif %}
+
+{% if paths|length > 0 %}
 WITH raw AS (
     SELECT *
     FROM READ_PARQUET(
-        's3://{{ var("bronze_bucket") }}/tiki_categories/dt=*/run_id=*/*.parquet',
+        [{{ paths|join(', ') }}],
         hive_partitioning = TRUE,
         union_by_name = TRUE
     )
 ),
 
--- Keep the most recent crawl per menu_id so re-runs within the same month
--- don't produce duplicates after we union historical partitions.
+-- Dedup theo category_id (extract từ link `/c<digits>`). Trước đây dùng
+-- menu_id, nhưng Tiki menu-config API gần đây không trả id/code/key trên
+-- node nào → menu_id 100% NULL → filter giết sạch dataset. category_id còn
+-- nguyên 100% rows và cũng là khoá join về dim_products, nên là khoá dedup
+-- chính xác hơn.
 ranked AS (
     SELECT
         menu_id,
@@ -36,11 +50,11 @@ ranked AS (
         TRY_CAST(is_leaf AS BOOLEAN) AS is_leaf,
         STRPTIME(extracted_at, '%Y%m%d_%H%M%S') AS extracted_at_ts,
         ROW_NUMBER() OVER (
-            PARTITION BY menu_id
+            PARTITION BY TRY_CAST(category_id AS BIGINT)
             ORDER BY extracted_at DESC
         ) AS rn
     FROM raw
-    WHERE menu_id IS NOT NULL
+    WHERE category_id IS NOT NULL
 )
 
 SELECT

@@ -39,6 +39,15 @@ with DAG(
 
     task_index = BashOperator(
         task_id="rag_index_products",
-        bash_command=f"cd {PROJECT_ROOT} && {PROJECT_PY} scripts/rag_index.py",
-        execution_timeout=timedelta(minutes=30),
+        bash_command=f"cd {PROJECT_ROOT} && {PROJECT_PY} -u scripts/rag_index.py",
+        env={
+            "PYTHONUNBUFFERED": "1",
+            # Xem comment cùng task ở dags/tiki_lakehouse_dag.py — giới hạn
+            # CPU thread + batch nhỏ để tránh swap thrash và heartbeat timeout.
+            "OMP_NUM_THREADS": "2",
+            "MKL_NUM_THREADS": "2",
+            "RAG_INDEX_BATCH": "4",
+        },
+        append_env=True,
+        execution_timeout=timedelta(minutes=90),
     )

@@ -4,7 +4,7 @@ Runs dbt (staging + marts) + analytics on a fixed cadence regardless of the
 crawler. Reads whatever bronze/silver currently exists and rebuilds the
 lakehouse marts. Use this when:
 - the main `tiki_lakehouse_daily_pipeline` crawl gets stuck or fails and you
-  still want fresh marts for Superset/Trino;
+  still want fresh marts for Trino / external BI tools;
 - you want marts to refresh more often than daily without recrawling.
 
 Does NOT include `archive_processed_bronze` — archiving is a one-shot operation

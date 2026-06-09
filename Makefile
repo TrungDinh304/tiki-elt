@@ -17,20 +17,20 @@ setup:
 
 # Bring up the full stack in dependency order (match README "First-time
 # bootstrap" section). Idempotent — chạy lại an toàn, compose chỉ recreate
-# service nào thay đổi. Stage 1: infra + bucket init. Stage 2: BI +
-# orchestrator. Stage 3: chờ Airflow CLI gọi được (= metadata DB sẵn sàng).
-# Stage 4: chatbot (UI lên ngay; retrieval rỗng cho tới khi pipeline chạy
-# lần đầu). Sau lần đầu, chạy `make bootstrap`; lần sau chỉ cần `make up`.
+# service nào thay đổi. Stage 1: infra + bucket init. Stage 2: orchestrator.
+# Stage 3: chờ Airflow CLI gọi được (= metadata DB sẵn sàng). Stage 4: chatbot
+# (UI lên ngay; retrieval rỗng cho tới khi pipeline chạy lần đầu). Sau lần
+# đầu, chạy `make bootstrap`; lần sau chỉ cần `make up`.
 up:
 	docker compose up -d minio postgres redis trino
 	docker compose up minio-init
-	docker compose up -d superset airflow
+	docker compose up -d airflow
 	python scripts/wait_for_airflow.py
 	docker compose up -d chatbot
 	@echo Stack up.
 	@echo   Airflow:  http://localhost:8081
 	@echo   Chatbot:  http://localhost:8501
-	@echo   Superset: http://localhost:8088
+	@echo   Trino:    http://localhost:8080
 	@echo   MinIO:    http://localhost:9001
 	@echo First-time setup? Run 'make bootstrap' to unpause + trigger DAGs.
 

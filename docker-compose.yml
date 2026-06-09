@@ -36,7 +36,7 @@ services:
       - lakehouse_net
     restart: "no"
 
-  # 2. POSTGRES - Metastore & Superset Backend + pgvector for RAG embeddings.
+  # 2. POSTGRES - Airflow metastore + pgvector for RAG embeddings.
   # Image is pgvector/pgvector:pg15 (drop-in for postgres:15) so the chatbot
   # indexer can `CREATE EXTENSION vector` without a separate vector DB service.
   postgres:
@@ -70,41 +70,16 @@ services:
       - minio
       - postgres
 
-  # 4. SUPERSET - Visualization (BI)
-  superset:
-    image: apache/superset:latest
-    container_name: tiki_superset
-    ports:
-      - "8088:8088"
-    environment:
-      SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY}
-      SUPERSET_LOAD_EXAMPLES: "no"
-      SQLALCHEMY_DATABASE_URI: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
-      PYTHONPATH: "/app/pythonpath:/app/superset_home/.local/lib/python3.10/site-packages"
-    networks:
-      - lakehouse_net
-    restart: "no"
-    # Initialize the database and admin user
-    entrypoint: >
-      /bin/sh -c "
-      pip install trino &&
-      superset db upgrade &&
-      superset fab create-admin --username ${SUPERSET_ADMIN_USER} --firstname Superset --lastname Admin --email admin@lakehouse.local --password ${SUPERSET_ADMIN_PASSWORD} &&
-      superset init &&
-      gunicorn -w 2 --timeout 120 -b 0.0.0.0:8088 --limit-request-line 0 --limit-request-field_size 0 'superset.app:create_app()'
-      "
-    depends_on:
-      - postgres
-      - trino
-    
-    # 5. Redis - Caching Layer (Optional, can be used for Superset caching or as a cache layer for dbt)
+  # 4. Redis - Lightweight cache for the crawler's seller-info dedupe path
+  # (redis/redis.py). Not on the BI hot path — BI/dashboards are BYO (Power BI
+  # Desktop reads marts directly from MinIO via parquet, see README).
   redis:
     image: redis:latest
     container_name: tiki_redis
     ports:
       - "6379:6379"
 
-  # 6. AIRFLOW - Orchestrator (standalone mode for dev)
+  # 5. AIRFLOW - Orchestrator (standalone mode for dev)
   airflow:
     build:
       context: .
@@ -168,7 +143,7 @@ services:
     restart: "no"
 
 
-  # 7. RAG indexer init - one-shot. Runs scripts/rag_index.py on `docker
+  # 6. RAG indexer init - one-shot. Runs scripts/rag_index.py on `docker
   # compose up` so the chatbot has embeddings ready out of the box. Reuses
   # the tiki-airflow:local image (already has venv + sentence-transformers).
   # If marts don't exist yet (fresh stack), the script exits 0 with a hint —
@@ -216,7 +191,7 @@ services:
       - lakehouse_net
     restart: "no"
 
-  # 8. CHATBOT - Streamlit RAG UI. Local BGE-M3 embedding (in-container) +
+  # 7. CHATBOT - Streamlit RAG UI. Local BGE-M3 embedding (in-container) +
   # external OpenAI-compatible LLM (9router on host by default) for chat
   # completion. The HF model cache is shared with the airflow container via
   # `hf_cache` so the 2.3GB weights download once.
