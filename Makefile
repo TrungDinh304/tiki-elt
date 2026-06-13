@@ -54,18 +54,24 @@ down:
 crawl:
 	uv run python crawler/fetch_tiki.py
 
-# Crawl theo danh mục mong muốn (bỏ qua watermark rotation).
-# IDS là chuỗi category leaf id, phân tách bằng dấu phẩy. Ví dụ:
+# Crawl theo danh mục mong muốn bằng cách TRIGGER daily DAG với param
+# `category_ids` override. IDS là chuỗi leaf id, phân tách bằng dấu phẩy:
 #   make crawl-cats IDS=8322,316
-# Chạy bên trong container airflow để DNS `minio:9000` resolve được + dùng
-# venv project (đã có boto3/duckdb). Sau khi xong, refresh marts + embeddings
-# để chatbot dùng dữ liệu mới:
-#   make dbt-run && docker compose run --rm rag-indexer-init
+#
+# Khác với trước (exec trực tiếp python crawler/):
+#   - Lệnh trả về NGAY sau khi DAG được enqueue — KHÔNG block tới crawl xong.
+#     Theo dõi tiến độ ở Airflow UI: http://localhost:8081 (run manual gần nhất).
+#   - Toàn bộ chain chạy tự động: crawl → dbt → archive → analytics + rag_index
+#     (parallel). KHÔNG cần `make dbt-run` thủ công nữa.
+#   - JSON --conf được Python helper xử lý (subprocess list-form) để né
+#     cmd.exe quote-stripping; helper cũng validate IDS = CSV digits, fail-fast.
+#
+# Yêu cầu: DAG `tiki_lakehouse_daily_pipeline` đã unpause (`make bootstrap`).
 crawl-cats:
 ifeq ($(strip $(IDS)),)
 	$(error Usage: make crawl-cats IDS=8322,316)
 endif
-	docker compose exec -T -e CRAWL_CATEGORY_IDS="$(IDS)" airflow sh -c "cd /opt/project && /opt/project-venv/bin/python crawler/fetch_tiki.py"
+	python scripts/trigger_crawl_cats.py $(IDS)
 
 
 # Run dbt transformations
