@@ -116,12 +116,11 @@ flowchart LR
 │  │  staging (silver layer, materialized=external parquet)                        │ │
 │  │    stg_tiki_products · stg_tiki_product_details · stg_tiki_sellers           │ │
 │  │    stg_tiki_seller_info · stg_tiki_reviews · stg_tiki_categories             │ │
-│  │    stg_tiki_books                                                             │ │
 │  │    → s3://silver/<model>.parquet                                              │ │
 │  │                                                                               │ │
 │  │  marts (lakehouse layer, materialized=external parquet)                       │ │
 │  │    dim_products · dim_sellers · dim_categories                                │ │
-│  │    fct_reviews · fct_tiki_books                                               │ │
+│  │    fct_reviews · fct_tiki_products                                            │ │
 │  │    → s3://lakehouse/marts/<model>.parquet                                     │ │
 │  └──────────────────┬─────────────────────────────┬──────────────────────────────┘ │
 │                     │                             │                                  │
@@ -184,7 +183,7 @@ s3://lakehouse/marts/                       # gold layer — connect Power BI he
   dim_sellers.parquet
   dim_categories.parquet
   fct_reviews.parquet
-  fct_tiki_books.parquet
+  fct_tiki_products.parquet      # legacy `fct_tiki_books.parquet` may also be present from older runs (orphan, safe to delete)
 
 postgres://metastore/rag.product_embeddings  # 1024-dim BGE-M3 vectors per product_id
 ```
@@ -459,6 +458,7 @@ Known gotchas — all captured here so they don't bite you twice.
 - **`make up` fails with `process_begin: CreateProcess(NULL, # 1. Infra ..., ...) failed`**. GNU Make on Windows fell back to `cmd.exe` and tried to execute the `#` comment in a recipe as a command. The Makefile is now cmd-compatible (no inline `#` comments in recipes, no `until`/`for d in`/`[ -z $X ]`). If you add a new recipe, follow the same rule.
 - **Airflow UI returns HTTP 500 right after a volume wipe**. Stale cookie — the recreated admin user has a new internal id. Hard-refresh or clear cookies for `localhost:8081`.
 - **RAG retrieval surfaces fans and irons when you ask about books**. The dataset is what the crawler has touched so far. Check `SELECT category_name, COUNT(*) FROM rag.product_embeddings GROUP BY 1` before assuming retrieval is broken; if the category isn't there, `make crawl-cats IDS=<leaf_id>` to fill it, then trigger `tiki_rag_indexer`.
+- **`fct_tiki_books.parquet` still in MinIO after the books → products rename**. The dbt models `stg_tiki_books` / `fct_tiki_books` were renamed to `*_products` on 2026-06-09. dbt's external materialization writes the new files (`stg_tiki_products.parquet`, `fct_tiki_products.parquet`) without touching the old ones. Old marts are orphaned but harmless — `mc rm myminio/silver/stg_tiki_books.parquet myminio/lakehouse/marts/fct_tiki_books.parquet` to clean up. `analytics_plot.py` reads the new file with a fallback to the legacy name, so dashboards keep working through the transition.
 
 ---
 

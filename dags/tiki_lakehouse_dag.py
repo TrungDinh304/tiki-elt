@@ -53,12 +53,48 @@ with DAG(
     # stuck crawl never blocks marts from refreshing on whatever bronze the
     # crawler did manage to write (plus the interleaved staging refreshes that
     # already populated silver mid-crawl).
+    #
+    # Partial-failure tolerance (the bash wrapper):
+    #   dbt exit code 1 covers both "everything broke" AND "some models failed
+    #   while others succeeded" — both look identical to BashOperator and would
+    #   fail the task, which then SKIPs `archive_processed_bronze` and
+    #   `generate_analytics_report` via their default ALL_SUCCESS trigger.
+    #   We don't want that: if 5/10 models materialized fresh marts, archive
+    #   and analytics should still run on those.
+    #
+    #   The wrapper parses dbt's summary line
+    #     "Done. PASS=N WARN=M ERROR=K SKIP=L NO-OP=X TOTAL=Y"
+    #   and:
+    #     - exits 0 when PASS ≥ 1 (soft pass, downstream proceeds);
+    #     - propagates the original exit code when PASS=0 (real failure,
+    #       downstream SKIPs as expected).
+    #   Real environment/auth/parse errors (no PASS line at all) also
+    #   propagate, since the grep won't match.
     task_dbt = BashOperator(
         task_id='run_dbt',
+        # DBT_TARGET_PATH ra ngoài bind mount (dbt_tiki/ bị mount từ host
+        # Windows). Trước đây khi ta exec interactive `dbt clean/compile` để
+        # debug, các file trong target/ được tạo dưới UID root, sau đó scheduled
+        # DAG (chạy as airflow UID 50000) không overwrite được manifest.json
+        # → PermissionError → toàn bộ dbt run abort. Ghi vào /tmp/dbt_target
+        # vừa tránh xung đột UID, vừa thoáng hơn (tmpfs trong container).
+        env={"DBT_TARGET_PATH": "/tmp/dbt_target"},
+        append_env=True,
         bash_command=(
-            f"cd {PROJECT_ROOT}/dbt_tiki && "
-            f"{PROJECT_DBT} run --profiles-dir . "
-            '--vars "{bronze_bucket: bronze, silver_bucket: silver, lakehouse_bucket: lakehouse}"'
+            f'cd {PROJECT_ROOT}/dbt_tiki || exit 1; '
+            f'{PROJECT_DBT} run --profiles-dir . '
+            '--vars "{bronze_bucket: bronze, silver_bucket: silver, lakehouse_bucket: lakehouse}" '
+            '2>&1 | tee /tmp/dbt_run_$$.log; '
+            'CODE=${PIPESTATUS[0]}; '
+            'if [ "$CODE" -eq 0 ]; then exit 0; fi; '
+            'if grep -qE "Done\\. PASS=[1-9][0-9]* WARN=" /tmp/dbt_run_$$.log; then '
+            '  echo "[run_dbt] dbt partial-success — at least 1 model passed; '
+            'downstream tasks will proceed."; '
+            '  exit 0; '
+            'fi; '
+            'echo "[run_dbt] dbt produced zero passing models; propagating failure '
+            'so archive/analytics SKIP."; '
+            'exit "$CODE"'
         ),
         trigger_rule=TriggerRule.ALL_DONE,
     )
@@ -91,6 +127,12 @@ with DAG(
     # giữa batch. RAG_INDEX_BATCH=4 giảm peak memory (BGE-M3 + batch 32 docs
     # ~4000 chars dễ vượt RAM Docker Desktop default → swap thrash 100x slow)
     # và flush print "upserted X/N" thường xuyên hơn.
+    #
+    # execution_timeout=240min nhắm vào first-time backfill: BGE-M3 trên CPU
+    # ~4 doc/phút × ~650 product mới sau crawl rộng → ~2h45min. Daily runs
+    # sau đó chỉ embed delta (content_hash dedup), thường xong trong vài phút,
+    # nên cap 240min chỉ hiếm khi đụng. Nếu vẫn timeout: script idempotent,
+    # `retries=1` (default_args) tự retry và tiếp tục từ chỗ bỏ dở.
     task_rag_index = BashOperator(
         task_id='rag_index_products',
         bash_command=f"cd {PROJECT_ROOT} && {PROJECT_PY} -u scripts/rag_index.py",
@@ -101,7 +143,7 @@ with DAG(
             "RAG_INDEX_BATCH": "4",
         },
         append_env=True,
-        execution_timeout=timedelta(minutes=90),
+        execution_timeout=timedelta(minutes=240),
         trigger_rule=TriggerRule.ALL_DONE,
     )
 

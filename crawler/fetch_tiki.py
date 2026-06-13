@@ -34,7 +34,7 @@ except Exception:
 load_dotenv()
 
 # Tiki usually caps listings at 50 pages
-DEFAULT_NUM_PAGES = 10  # Default 10 pages (~400 books)
+DEFAULT_NUM_PAGES = 10  # Default 10 pages (~400 products)
 
 MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "http://localhost:9000")
 MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "admin")
@@ -343,7 +343,12 @@ def process_page(products, page_number):
         return
 
     page_prefix = f"page_{page_number}"
-    save_to_minio(products, "tiki_products", f"books_{page_prefix}", preview=False)
+    # File prefix used to be `books_*` from a legacy listings-of-books pilot.
+    # Renamed to `products_*` since the crawler is now product-generic.
+    # Staging glob (`bronze/tiki_products/dt=*/run_id=*/*.parquet`) matches any
+    # filename, so old `books_page_*.parquet` partitions in `_processed/` keep
+    # getting read by dbt — no need to re-crawl or rename historical files.
+    save_to_minio(products, "tiki_products", f"products_{page_prefix}", preview=False)
 
     product_ids = []
     seller_ids = []

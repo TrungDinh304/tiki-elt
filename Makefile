@@ -67,9 +67,6 @@ ifeq ($(strip $(IDS)),)
 endif
 	docker compose exec -T -e CRAWL_CATEGORY_IDS="$(IDS)" airflow sh -c "cd /opt/project && /opt/project-venv/bin/python crawler/fetch_tiki.py"
 
-# Run the category crawler (monthly cadence)
-crawl-categories:
-	uv run python crawler/fetch_category.py
 
 # Run dbt transformations
 dbt-run:

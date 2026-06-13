@@ -44,10 +44,12 @@ with DAG(
             "PYTHONUNBUFFERED": "1",
             # Xem comment cùng task ở dags/tiki_lakehouse_dag.py — giới hạn
             # CPU thread + batch nhỏ để tránh swap thrash và heartbeat timeout.
+            # Timeout 240min đủ cho backfill ~650 sản phẩm fresh (~4 prod/min
+            # trên CPU). Incremental daily run thường vài phút.
             "OMP_NUM_THREADS": "2",
             "MKL_NUM_THREADS": "2",
             "RAG_INDEX_BATCH": "4",
         },
         append_env=True,
-        execution_timeout=timedelta(minutes=90),
+        execution_timeout=timedelta(minutes=240),
     )
