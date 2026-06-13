@@ -9,7 +9,7 @@ products AS (
         product_id,
         product_name,
         brand_name
-    FROM {{ ref('stg_tiki_books') }}
+    FROM {{ ref('stg_tiki_products') }}
 ),
 
 sellers AS (

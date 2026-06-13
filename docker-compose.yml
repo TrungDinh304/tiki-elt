@@ -36,9 +36,11 @@ services:
       - lakehouse_net
     restart: "no"
 
-  # 2. POSTGRES - Metastore & Superset Backend
+  # 2. POSTGRES - Airflow metastore + pgvector for RAG embeddings.
+  # Image is pgvector/pgvector:pg15 (drop-in for postgres:15) so the chatbot
+  # indexer can `CREATE EXTENSION vector` without a separate vector DB service.
   postgres:
-    image: postgres:15
+    image: pgvector/pgvector:pg15
     container_name: tiki_postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
@@ -68,41 +70,16 @@ services:
       - minio
       - postgres
 
-  # 4. SUPERSET - Visualization (BI)
-  superset:
-    image: apache/superset:latest
-    container_name: tiki_superset
-    ports:
-      - "8088:8088"
-    environment:
-      SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY}
-      SUPERSET_LOAD_EXAMPLES: "no"
-      SQLALCHEMY_DATABASE_URI: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
-      PYTHONPATH: "/app/pythonpath:/app/superset_home/.local/lib/python3.10/site-packages"
-    networks:
-      - lakehouse_net
-    restart: "no"
-    # Initialize the database and admin user
-    entrypoint: >
-      /bin/sh -c "
-      pip install trino &&
-      superset db upgrade &&
-      superset fab create-admin --username ${SUPERSET_ADMIN_USER} --firstname Superset --lastname Admin --email admin@lakehouse.local --password ${SUPERSET_ADMIN_PASSWORD} &&
-      superset init &&
-      gunicorn -w 2 --timeout 120 -b 0.0.0.0:8088 --limit-request-line 0 --limit-request-field_size 0 'superset.app:create_app()'
-      "
-    depends_on:
-      - postgres
-      - trino
-    
-    # 5. Redis - Caching Layer (Optional, can be used for Superset caching or as a cache layer for dbt)
+  # 4. Redis - Lightweight cache for the crawler's seller-info dedupe path
+  # (redis/redis.py). Not on the BI hot path — BI/dashboards are BYO (Power BI
+  # Desktop reads marts directly from MinIO via parquet, see README).
   redis:
     image: redis:latest
     container_name: tiki_redis
     ports:
       - "6379:6379"
 
-  # 6. AIRFLOW - Orchestrator (standalone mode for dev)
+  # 5. AIRFLOW - Orchestrator (standalone mode for dev)
   airflow:
     build:
       context: .
@@ -135,6 +112,14 @@ services:
       LAKEHOUSE_BUCKET: ${LAKEHOUSE_BUCKET:-lakehouse}
       BUDGET_PER_RUN: ${BUDGET_PER_RUN:-50}
       PAGES_PER_CATEGORY: ${PAGES_PER_CATEGORY:-5}
+      # RAG indexer (scripts/rag_index.py) — local sentence-transformers
+      # embedding + pgvector upsert. PG_DSN points at the in-network postgres.
+      # HF_HOME is mounted onto the `hf_cache` volume so the BGE-M3 weights
+      # (~2.3GB) survive container rebuilds and are shared with the chatbot.
+      PG_DSN: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-m3}
+      EMBEDDING_DIM: ${EMBEDDING_DIM:-1024}
+      HF_HOME: /opt/hf_cache
     volumes:
       - ./dags:/opt/project/dags
       - ./crawler:/opt/project/crawler
@@ -144,6 +129,7 @@ services:
       - ./images:/opt/project/images
       - ./airflow_home/logs:/opt/airflow/logs
       - airflow_db:/opt/airflow/db
+      - hf_cache:/opt/hf_cache
     # Custom entrypoint: pre-create admin user from AIRFLOW_ADMIN_USER /
     # AIRFLOW_ADMIN_PASSWORD then hand off to airflow standalone (which
     # skips user creation when the admin already exists).
@@ -152,6 +138,90 @@ services:
     depends_on:
       - postgres
       - minio
+    networks:
+      - lakehouse_net
+    restart: "no"
+
+
+  # 6. RAG indexer init - one-shot. Runs scripts/rag_index.py on `docker
+  # compose up` so the chatbot has embeddings ready out of the box. Reuses
+  # the tiki-airflow:local image (already has venv + sentence-transformers).
+  # If marts don't exist yet (fresh stack), the script exits 0 with a hint —
+  # not a failure — and the user re-runs after the daily pipeline.
+  rag-indexer-init:
+    build:
+      # Reuse the airflow image (same Dockerfile) so this service has the
+      # project venv with sentence-transformers + psycopg2-binary already
+      # baked in. Compose dedupes the build because both services share
+      # the same `image:` tag.
+      context: .
+      dockerfile: airflow/Dockerfile
+    image: tiki-airflow:local
+    container_name: tiki_rag_indexer_init
+    # Run as root so the Hugging Face cache volume (created by Docker with
+    # root ownership) is writable. The airflow image's default UID 50000
+    # can't write to /opt/hf_cache otherwise. Safe here — this is a one-shot
+    # script, not a long-running airflow process.
+    user: "0:0"
+    depends_on:
+      - postgres
+      - minio
+      - minio-init
+    environment:
+      S3_ENDPOINT_HOST: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      LAKEHOUSE_BUCKET: ${LAKEHOUSE_BUCKET:-lakehouse}
+      PG_DSN: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-m3}
+      EMBEDDING_DIM: ${EMBEDDING_DIM:-1024}
+      HF_HOME: /opt/hf_cache
+      # Force unbuffered stdout so `docker logs` shows progress in real time
+      # instead of holding prints in a 4KB block buffer until exit.
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ./scripts:/opt/project/scripts
+      - hf_cache:/opt/hf_cache
+    entrypoint:
+      - /opt/project-venv/bin/python
+      - -u
+      - /opt/project/scripts/rag_index.py
+    command: []
+    networks:
+      - lakehouse_net
+    restart: "no"
+
+  # 7. CHATBOT - Streamlit RAG UI. Local BGE-M3 embedding (in-container) +
+  # external OpenAI-compatible LLM (9router on host by default) for chat
+  # completion. The HF model cache is shared with the airflow container via
+  # `hf_cache` so the 2.3GB weights download once.
+  chatbot:
+    build:
+      context: ./chatbot
+    image: tiki-chatbot:local
+    container_name: tiki_chatbot
+    ports:
+      - "8501:8501"
+    # host.docker.internal resolves to the docker host. Docker Desktop sets it
+    # automatically; this entry is for parity on Linux where Compose v2 maps
+    # `host-gateway` to the host's IP. Lets the chatbot reach 9router (or any
+    # LLM gateway you run on the host) without hard-coding the LAN IP.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      PG_DSN: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-m3}
+      # OpenAI-compatible LLM gateway. Default points at 9router on host; set
+      # to a remote endpoint (OpenRouter, DeepSeek paid API, etc) in .env to
+      # override.
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:20128/v1}
+      LLM_API_KEY: ${LLM_API_KEY:-sk-dummy}
+      CHAT_MODEL: ${CHAT_MODEL:-gc/gemini-3-flash-preview}
+      HF_HOME: /opt/hf_cache
+    volumes:
+      - hf_cache:/opt/hf_cache
+    depends_on:
+      - postgres
     networks:
       - lakehouse_net
     restart: "no"
@@ -166,3 +236,6 @@ volumes:
   pg_data:
   trino_metastore:
   airflow_db:
+  # Shared Hugging Face cache for sentence-transformers (BGE-M3 weights).
+  # Used by both the airflow venv (indexer DAG) and the chatbot container.
+  hf_cache:

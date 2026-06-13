@@ -24,11 +24,23 @@ RUN apt-get update \
         "dbt-duckdb" \
         "matplotlib" \
         "seaborn" \
+    # RAG indexer deps. Install CPU-only torch from the PyTorch CPU index first
+    # so sentence-transformers doesn't pull the ~2GB CUDA wheel from PyPI.
+    && /usr/local/bin/uv pip install --python ${PROJECT_VENV}/bin/python --no-cache \
+        --index-url https://download.pytorch.org/whl/cpu \
+        "torch>=2.2" \
+    && /usr/local/bin/uv pip install --python ${PROJECT_VENV}/bin/python --no-cache \
+        "psycopg2-binary>=2.9" \
+        "pgvector>=0.2.5" \
+        "sentence-transformers>=2.7" \
     && chmod -R a+rx ${PROJECT_VENV}
 
 # Wrapper that pre-creates the admin user from env before handing off to
 # `airflow standalone` (standalone otherwise generates a random password).
 COPY --chmod=0755 airflow/start.sh /opt/airflow/start.sh
 
-USER airflow
+# Stay as root so start.sh can chown shared volumes (hf_cache) before dropping
+# to the airflow user. start.sh re-execs itself via runuser to finish the rest
+# as UID 50000 (the airflow user) — airflow standalone never runs as root.
+USER root
 WORKDIR /opt/project

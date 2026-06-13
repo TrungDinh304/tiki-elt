@@ -19,7 +19,13 @@ dependencies = [
     "duckdb",
     # dbt dependencies
     "dbt-duckdb",
-    "sqlfluff"
+    "sqlfluff",
+    # RAG indexer (scripts/rag_index.py) — Postgres+pgvector + local embedding.
+    # Note: `sentence-transformers` pulls torch transitively. On Airflow image
+    # build, prefer installing CPU-only torch first (see airflow/Dockerfile).
+    "psycopg2-binary>=2.9",
+    "pgvector>=0.2.5",
+    "sentence-transformers>=2.7"
 ]
 
 [project.optional-dependencies]

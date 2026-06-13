@@ -1,0 +1,5 @@
+# Force LF line endings for shell scripts and Dockerfiles so Windows checkouts
+# with `core.autocrlf=true` don't break `exec` inside Linux containers.
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.Dockerfile text eol=lf

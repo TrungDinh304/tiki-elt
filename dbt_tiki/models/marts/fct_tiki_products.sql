@@ -1,7 +1,7 @@
 {{ config(location=external_path('lakehouse_marts')) }}
 
-WITH books AS (
-    SELECT * FROM {{ ref('stg_tiki_books') }}
+WITH products AS (
+    SELECT * FROM {{ ref('stg_tiki_products') }}
 ),
 
 sellers AS (
@@ -23,26 +23,26 @@ product_category AS (
 )
 
 SELECT
-    b.product_id,
-    b.product_name,
-    b.author_name,
-    b.brand_name,
-    b.price,
-    b.original_price,
-    b.discount,
-    b.discount_rate,
-    b.rating_average,
-    b.review_count,
-    b.inventory_status,
-    b.quantity_sold,
-    b.seller_id,
+    p.product_id,
+    p.product_name,
+    p.author_name,
+    p.brand_name,
+    p.price,
+    p.original_price,
+    p.discount,
+    p.discount_rate,
+    p.rating_average,
+    p.review_count,
+    p.inventory_status,
+    p.quantity_sold,
+    p.seller_id,
     s.seller_name,
     s.is_official,
     s.store_level,
     pc.category_id,
-    b.thumbnail_url,
-    b.extracted_at_ts,
-    b.dt
-FROM books AS b
-LEFT JOIN sellers AS s ON b.seller_id = s.seller_id
-LEFT JOIN product_category AS pc ON b.product_id = pc.product_id
+    p.thumbnail_url,
+    p.extracted_at_ts,
+    p.dt
+FROM products AS p
+LEFT JOIN sellers AS s ON p.seller_id = s.seller_id
+LEFT JOIN product_category AS pc ON p.product_id = pc.product_id

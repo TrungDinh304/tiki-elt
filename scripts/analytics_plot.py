@@ -29,18 +29,30 @@ def _connect():
 
 
 def plot_top_products(conn, out_dir):
+    # `fct_tiki_books.parquet` is the legacy filename produced by previous dbt
+    # runs (model was renamed to `fct_tiki_products` on 2026-06-09). New runs
+    # write `fct_tiki_products.parquet`; we prefer that and fall back to the
+    # legacy file when only old marts are still on disk.
+    try:
+        sample = conn.execute(
+            f"SELECT 1 FROM read_parquet('{MARTS_PREFIX}/fct_tiki_products.parquet') LIMIT 1"
+        ).fetchone()
+        marts_file = "fct_tiki_products.parquet" if sample is not None else "fct_tiki_books.parquet"
+    except Exception:
+        marts_file = "fct_tiki_books.parquet"
+
     query = f"""
         SELECT product_name, MAX(quantity_sold) AS quantity_sold
-        FROM read_parquet('{MARTS_PREFIX}/fct_tiki_books.parquet')
+        FROM read_parquet('{MARTS_PREFIX}/{marts_file}')
         WHERE quantity_sold IS NOT NULL
         GROUP BY product_name
         ORDER BY quantity_sold DESC
         LIMIT 10
     """
-    print("Querying top 10 products...")
+    print(f"Querying top 10 products from {marts_file}...")
     df = conn.execute(query).df()
     if df.empty:
-        print("  No data in fct_tiki_books — skipping top_10_products chart")
+        print(f"  No data in {marts_file} — skipping top_10_products chart")
         return
 
     df["short_name"] = df["product_name"].apply(

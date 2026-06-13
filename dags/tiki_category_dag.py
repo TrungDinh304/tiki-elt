@@ -41,9 +41,13 @@ with DAG(
     )
 
     # Only rebuild the category-related models so we don't accidentally
-    # refresh daily marts on a monthly cadence.
+    # refresh daily marts on a monthly cadence. DBT_TARGET_PATH ra ngoài
+    # bind-mount để tránh xung đột UID trên manifest.json (xem
+    # tiki_lakehouse_dag.py để biết chi tiết).
     task_dbt_categories = BashOperator(
         task_id="run_dbt_categories",
+        env={"DBT_TARGET_PATH": "/tmp/dbt_target"},
+        append_env=True,
         bash_command=(
             f"cd {PROJECT_ROOT}/dbt_tiki && "
             f"{PROJECT_DBT} run --profiles-dir . --select stg_tiki_categories+ "
