@@ -1,4 +1,5 @@
 from airflow import DAG
+from airflow.models.param import Param
 from airflow.operators.bash import BashOperator
 from airflow.utils.trigger_rule import TriggerRule
 from datetime import datetime, timedelta
@@ -30,6 +31,30 @@ with DAG(
     start_date=datetime(2023, 1, 1),
     catchup=False,
     tags=['tiki', 'lakehouse'],
+    # Cho phép manual trigger override watermark rotation bằng cách truyền
+    # `category_ids` (CSV leaf ids, ví dụ "8322,316"). Scheduled run vẫn để
+    # default = "" → crawler rơi vào watermark mode như cũ
+    # (xem crawler/fetch_tiki.py:454).
+    #
+    # Trigger từ shell:
+    #   docker compose exec airflow airflow dags trigger \
+    #     tiki_lakehouse_daily_pipeline --conf '{"category_ids":"8322,316"}'
+    # Hoặc dùng wrapper Makefile: `make crawl-cats IDS=8322,316`
+    #
+    # Pattern `^[0-9,\s]*$` chặn injection (param được nội suy thẳng vào
+    # bash_command), chỉ chấp nhận digit + dấu phẩy + whitespace.
+    params={
+        "category_ids": Param(
+            "",
+            type="string",
+            pattern=r"^[0-9,\s]*$",
+            title="Override category leaf IDs (CSV)",
+            description=(
+                "Comma-separated leaf category IDs, e.g. 8322,316. "
+                "Để trống → dùng watermark rotation như scheduled run."
+            ),
+        ),
+    },
 ) as dag:
 
     # Task 1: Crawl. Every 5 categories the crawler fires a dbt staging refresh
@@ -37,9 +62,16 @@ with DAG(
     # pointed at it) instead of waiting until the crawl finishes. The
     # downstream run_dbt uses trigger_rule=ALL_DONE, so a long or stuck crawl
     # no longer blocks marts.
+    # CRAWL_CATEGORY_IDS được Jinja-render TRONG bash_command (không qua `env=`)
+    # vì `env` chỉ được templated từ Airflow 2.5+ và để tránh phụ thuộc version.
+    # Param đã được validate pattern ở DAG-level → an toàn nội suy.
     task_crawl = BashOperator(
         task_id='crawl_tiki_data',
-        bash_command=f"cd {PROJECT_ROOT} && {PROJECT_PY} crawler/fetch_tiki.py",
+        bash_command=(
+            f"cd {PROJECT_ROOT} && "
+            "CRAWL_CATEGORY_IDS='{{ params.category_ids }}' "
+            f"{PROJECT_PY} crawler/fetch_tiki.py"
+        ),
         env={
             "TRIGGER_DBT_EVERY_N": "5",
             "DBT_BIN": PROJECT_DBT,
