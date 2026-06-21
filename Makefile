@@ -23,10 +23,10 @@ setup:
 # đầu, chạy `make bootstrap`; lần sau chỉ cần `make up`.
 up:
 	docker compose up -d minio postgres redis trino
-	docker compose up minio-init
+	docker compose up -d minio-init
 	docker compose up -d airflow
 	python scripts/wait_for_airflow.py
-	docker compose up -d chatbot
+	docker compose up -d --force-recreate chatbot
 	@echo Stack up.
 	@echo   Airflow:  http://localhost:8081
 	@echo   Chatbot:  http://localhost:8501
